@@ -1,0 +1,10 @@
+# Build output (regenerate with Qt Creator / CMake)
+build/
+
+# Personal Qt Creator settings (kit-specific)
+.qtcreator/
+*.user
+*.user.*
+
+# macOS
+.DS_Store
