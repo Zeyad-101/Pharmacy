@@ -1,33 +1,23 @@
-#include<iostream>
-using namespace std;
-void CategoryManager::runSystem() {
-    int choice;
-    string query;
+// El file da mas2ool 3an el categories bta3t el pharmacy: list el categories wel check en el category sa7.
+// Owner: Judy
+#pragma once
 
-    do {
-        cout << "\n** SMART PHARMACY SYSTEM **\n";
-        cout << "1. Display All Inventory (Medicines & Vitamins)\n";
-        cout << "2. Search Medicine or Vitamin (with Auto-Add if missing)\n";
-        cout << "3. Exit\n";
-        cout << "Enter your choice: ";
-        cin >> choice;
+#include <QString>
+#include <QStringList>
 
-        switch (choice) {
-        case 1:
-            medManager.displayAll();
-            break;
-        case 2:
-            cout << "Enter medicine or vitamin name to search: ";
-            cin.ignore();
-            getline(cin, query);
-            medManager.searchItem(query);
-            break;
-        case 3:
-            cout << "Exiting system. Goodbye!\n";
-            break;
-        default:
-            cout << "Invalid choice. Please try again.\n";
-        }
-    } while (choice != 3);
+namespace pharmacy {
+
+class CategoryManager
+{
+public:
+    static constexpr char CATEGORY_MEDICINES[] = "Medicines";
+    static constexpr char CATEGORY_SKINCARE[]  = "Skincare";
+    static constexpr char CATEGORY_VITAMINS[]  = "Vitamins & Supplements";
+    static constexpr char CATEGORY_FIRST_AID[] = "First Aid & Medical Supplies";
+
+    static QStringList getAllCategories();
+    static bool isValidCategory(const QString& category);
+    static QString normalizeCategory(const QString& category);
+};
+
 }
-

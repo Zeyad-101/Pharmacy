@@ -1,96 +1,212 @@
-MedicineManager::MedicineManager() {
-    // Initial Egyptian Medicines
-    medicines = {
-        {1, "Cataflam", "~65 - 85 EGP", "Diclofen (or Voltaren)", "~35 - 50 EGP", "Diclofenac Potassium / Sodium", "Fast-acting pain reliever & anti-inflammatory"},
-        {2, "Antinal", "~30 - 45 EGP", "Diax", "~20 - 30 EGP", "Nifuroxazide", "Intestinal antiseptic for diarrhea"},
-        {3, "Hibiotic", "~110 - 140 EGP", "Clavimox", "~75 - 100 EGP", "Amoxicillin + Clavulanic Acid", "Broad-spectrum antibiotic"},
-        {4, "Concor (5mg)", "~80 - 110 EGP", "Bisocard (5mg)", "~45 - 65 EGP", "Bisoprolol", "High blood pressure & heart rate regulation"},
-        {5, "Cidophage (500mg)", "~30 - 45 EGP", "Metformin El-Nasr", "~20 - 35 EGP", "Metformin", "Blood sugar regulation (Type 2 diabetes) & PCOS"},
-        {6, "Omez (20mg)", "~45 - 65 EGP", "Omeprazole", "~30 - 40 EGP", "Omeprazole", "Heartburn, GERD, and stomach ulcer treatment"},
-        {7, "Myofen", "~35 - 50 EGP", "Norgesic", "~25 - 35 EGP", "Chlorzoxazone + Paracetamol", "Muscle relaxant & pain reliever"}
-    };
+// El file da mas2ool 3an edaret el adweya wel products: add, update, delete, search, we list by category.
+// Owner: Judy
+#include "Medicine/MedicineManagerjudy.h"
 
-    // Initial Egyptian Vitamins
-    vitamins = {
-        {1, "Methyltechno", "~100 - 130 EGP (Oral Strips)", "Vitamin B12 (Methylcobalamin)", "Nerve support, numbness/tingling relief"},
-        {2, "Vitacid C", "~20 - 35 EGP (Effervescent)", "Vitamin C (1000mg)", "Immune booster & cold/flu prevention"},
-        {3, "Sanso Magnesium", "~70 - 100 EGP", "Magnesium", "Muscle cramp relief & sleep quality improvement"}
-    };
+#include "Medicine/CategoryManagerjudy.h"
+#include "Repositories/ProductRepositoryheba.h"
+
+namespace pharmacy {
+
+MedicineManager::MedicineManager(ProductRepository& repository)
+    : repository(repository)
+{
 }
 
-void MedicineManager::displayAll() const {
-    cout << "\n=================== EGYPTIAN MEDICINES ===================\n";
-    for (const auto& med : medicines) {
-        cout << "ID: " << med.id << " | Brand: " << med.name << " (" << med.price << ")\n";
-        cout << "   -> Alternative: " << med.alternative << " (" << med.altPrice << ")\n";
-        cout << "   -> Uses: " << med.uses << "\n";
+MedicineResult MedicineManager::validateProduct(const Product& product) const
+{
+    // Later we can use Fayad's Validation functions here
+
+    // Check the id is not empty
+    if (product.getId().trimmed().isEmpty()) {
+        return MedicineResult::InvalidData;
     }
 
-    cout << "\n=================== EGYPTIAN VITAMINS ====================\n";
-    for (const auto& vit : vitamins) {
-        cout << "ID: " << vit.id << " | Vitamin: " << vit.name << " (" << vit.price << ")\n";
-        cout << "   -> Ingredients: " << vit.keyIngredients << "\n";
-        cout << "   -> Uses: " << vit.uses << "\n";
+    // Check the name is not empty
+    if (product.getName().trimmed().isEmpty()) {
+        return MedicineResult::InvalidData;
     }
+
+    // Check the price is more than zero
+    if (product.getPriceMinor() <= 0) {
+        return MedicineResult::InvalidData;
+    }
+
+    // Check the stock is not negative
+    if (product.getStockQuantity() < 0) {
+        return MedicineResult::InvalidData;
+    }
+
+    // Check the category is one of the 4 categories
+    if (!CategoryManager::isValidCategory(product.getCategory())) {
+        return MedicineResult::InvalidCategory;
+    }
+
+    return MedicineResult::Success;
 }
 
-void MedicineManager::searchItem(const string& query) {
-    bool found = false;
+MedicineResult MedicineManager::addMedicine(const Product& product)
+{
+    // Check the product data first
+    MedicineResult result = validateProduct(product);
+    if (result != MedicineResult::Success) {
+        return result;
+    }
 
-    // Search Medicines
-    cout << "\n--- Searching Medicines for \"" << query << "\" ---\n";
-    for (const auto& med : medicines) {
-        if (med.name.find(query) != string::npos || med.alternative.find(query) != string::npos) {
-            cout << "[FOUND IN MEDICINES]\n";
-            cout << "Brand Medicine: " << med.name << " | Price: " << med.price << "\n";
-            cout << "Alternative:    " << med.alternative << " | Alt Price: " << med.altPrice << "\n";
-            cout << "Active Ing.:    " << med.activeIngredient << "\n";
-            cout << "Main Uses:      " << med.uses << "\n";
+    // Do not add an expired product
+    if (product.isExpired()) {
+        return MedicineResult::InvalidData;
+    }
+
+    // Check no other product has the same id
+    if (repository.existsById(product.getId())) {
+        return MedicineResult::DuplicateId;
+    }
+
+    // Check no other product has the same code
+    if (!product.getCode().isEmpty()) {
+        if (repository.existsByCode(product.getCode())) {
+            return MedicineResult::DuplicateCode;
+        }
+    }
+
+    // Save the category with its official spelling
+    Product cleanProduct = product;
+    cleanProduct.setCategory(CategoryManager::normalizeCategory(product.getCategory()));
+
+    // Ask the repository to save it
+    if (!repository.saveProduct(cleanProduct)) {
+        return MedicineResult::StorageError;
+    }
+
+    return MedicineResult::Success;
+}
+
+MedicineResult MedicineManager::updateMedicine(const Product& product)
+{
+    // Check the product data first
+    MedicineResult result = validateProduct(product);
+    if (result != MedicineResult::Success) {
+        return result;
+    }
+
+    // Find the old product
+    std::optional<Product> oldProduct = repository.getProductById(product.getId());
+    if (!oldProduct) {
+        return MedicineResult::NotFound;
+    }
+
+    // If the code changed, check no other product uses the new code
+    if (product.getCode() != oldProduct->getCode()) {
+        if (!product.getCode().isEmpty()) {
+            const QList<Product> allProducts = repository.getAllProducts();
+            for (const Product& other : allProducts) {
+                if (other.getId() == product.getId()) {
+                    continue;
+                }
+                if (other.getCode() == product.getCode()) {
+                    return MedicineResult::DuplicateCode;
+                }
+            }
+        }
+    }
+
+    // Save the category with its official spelling
+    Product cleanProduct = product;
+    cleanProduct.setCategory(CategoryManager::normalizeCategory(product.getCategory()));
+
+    // Ask the repository to update it
+    if (!repository.updateProduct(cleanProduct)) {
+        return MedicineResult::StorageError;
+    }
+
+    return MedicineResult::Success;
+}
+
+MedicineResult MedicineManager::deleteMedicine(const QString& productId)
+{
+    // Check the id is not empty
+    QString id = productId.trimmed();
+    if (id.isEmpty()) {
+        return MedicineResult::InvalidData;
+    }
+
+    // Check the product exists
+    if (!repository.existsById(id)) {
+        return MedicineResult::NotFound;
+    }
+
+    // Ask the repository to delete it
+    if (!repository.deleteProduct(id)) {
+        return MedicineResult::StorageError;
+    }
+
+    return MedicineResult::Success;
+}
+
+std::optional<Product> MedicineManager::findMedicineById(const QString& productId) const
+{
+    // Empty id means nothing to find
+    QString id = productId.trimmed();
+    if (id.isEmpty()) {
+        return std::nullopt;
+    }
+
+    // If not found, the repository returns nothing
+    return repository.getProductById(id);
+}
+
+QList<Product> MedicineManager::searchMedicines(const QString& term) const
+{
+    QList<Product> result;
+
+    // Empty search term gives an empty list
+    QString cleanTerm = term.trimmed();
+    if (cleanTerm.isEmpty()) {
+        return result;
+    }
+
+    // Search names and codes, ignoring upper / lower case
+    const QList<Product> allProducts = repository.getAllProducts();
+    for (const Product& product : allProducts) {
+        bool found = false;
+        if (product.getName().contains(cleanTerm, Qt::CaseInsensitive)) {
             found = true;
         }
-    }
-
-    // Search Vitamins
-    cout << "\n--- Searching Vitamins for \"" << query << "\" ---\n";
-    for (const auto& vit : vitamins) {
-        if (vit.name.find(query) != string::npos) {
-            cout << "[FOUND IN VITAMINS]\n";
-            cout << "Vitamin Name: " << vit.name << " | Price: " << vit.price << "\n";
-            cout << "Ingredients:  " << vit.keyIngredients << "\n";
-            cout << "Main Uses:    " << vit.uses << "\n";
+        if (product.getCode().contains(cleanTerm, Qt::CaseInsensitive)) {
             found = true;
         }
-    }
-
-    // If not found, offer to add it!
-    if (!found) {
-        cout << "\nItem \"" << query << "\" was not found in the pharmacy database.\n";
-        char choice;
-        cout << "Would you like to add this medicine/vitamin to the system? (y/n): ";
-        cin >> choice;
-        if (choice == 'y' || choice == 'Y') {
-            addMedicineInteractive(query);
+        if (found) {
+            result.append(product);
         }
     }
+
+    return result;
 }
 
-void MedicineManager::addMedicineInteractive(const string& name) {
-    Medicine newMed;
-    newMed.id = medicines.size() + 1;
-    newMed.name = name;
-    
-    cin.ignore();
-    cout << "Enter Brand Price (e.g., ~50 EGP): ";
-    getline(cin, newMed.price);
-    cout << "Enter Alternative Medicine Name: ";
-    getline(cin, newMed.alternative);
-    cout << "Enter Alternative Price: ";
-    getline(cin, newMed.altPrice);
-    cout << "Enter Active Ingredient: ";
-    getline(cin, newMed.activeIngredient);
-    cout << "Enter Main Uses: ";
-    getline(cin, newMed.uses);
+QList<Product> MedicineManager::getAllMedicines() const
+{
+    return repository.getAllProducts();
+}
 
-    medicines.push_back(newMed);
-    cout << "\n[SUCCESS] New medicine added to the database!\n";
+QList<Product> MedicineManager::getMedicinesByCategory(const QString& category) const
+{
+    QList<Product> result;
+
+    // Get the official category name
+    QString cleanCategory = CategoryManager::normalizeCategory(category);
+    if (cleanCategory.isEmpty()) {
+        return result;
+    }
+
+    // Keep only the products in this category
+    const QList<Product> allProducts = repository.getAllProducts();
+    for (const Product& product : allProducts) {
+        if (product.getCategory() == cleanCategory) {
+            result.append(product);
+        }
+    }
+
+    return result;
+}
+
 }

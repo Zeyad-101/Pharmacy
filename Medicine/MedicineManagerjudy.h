@@ -1,37 +1,45 @@
-#include <iostream>
-#include <string>
-#include <vector>
+// El file da mas2ool 3an edaret el adweya wel products: add, update, delete, search, we list by category.
+// Owner: Judy
+#pragma once
 
-using namespace std;
+#include <QList>
+#include <QString>
+#include <optional>
 
-// Structure for Medicines
-struct Medicine {
-    int id;
-    string name;
-    string price;
-    string alternative;
-    string altPrice;
-    string activeIngredient;
-    string uses;
+#include "Models/Product.h"
+
+namespace pharmacy {
+
+class ProductRepository;
+
+enum class MedicineResult {
+    Success,
+    InvalidData,
+    InvalidCategory,
+    DuplicateId,
+    DuplicateCode,
+    NotFound,
+    StorageError
 };
 
-// Structure for Vitamins
-struct Vitamin {
-    int id;
-    string name;
-    string price;
-    string keyIngredients;
-    string uses;
-};
-
-class MedicineManager {
-private:
-    vector<Medicine> medicines;
-    vector<Vitamin> vitamins;
-
+class MedicineManager
+{
 public:
-    MedicineManager();
-    void displayAll() const;
-    void searchItem(const string& query);
-    void addMedicineInteractive(const string& name);
+    explicit MedicineManager(ProductRepository& repository);
+
+    MedicineResult addMedicine(const Product& product);
+    MedicineResult updateMedicine(const Product& product);
+    MedicineResult deleteMedicine(const QString& productId);
+
+    std::optional<Product> findMedicineById(const QString& productId) const;
+    QList<Product> searchMedicines(const QString& term) const;
+    QList<Product> getAllMedicines() const;
+    QList<Product> getMedicinesByCategory(const QString& category) const;
+
+private:
+    MedicineResult validateProduct(const Product& product) const;
+
+    ProductRepository& repository;
 };
+
+}
