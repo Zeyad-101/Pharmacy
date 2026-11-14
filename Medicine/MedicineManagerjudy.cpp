@@ -103,7 +103,8 @@ MedicineResult MedicineManager::updateMedicine(const Product& product)
                 if (other.getId() == product.getId()) {
                     continue;
                 }
-                if (other.getCode() == product.getCode()) {
+                // Compare codes ignoring upper / lower case, like the repository does
+                if (other.getCode().trimmed().compare(product.getCode().trimmed(), Qt::CaseInsensitive) == 0) {
                     return MedicineResult::DuplicateCode;
                 }
             }
