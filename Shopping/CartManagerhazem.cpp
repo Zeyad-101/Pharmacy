@@ -1,3 +1,5 @@
+// El file da mas2ool 3an el shopping cart: add w remove lel products, ta3deel el kameya, we 7esab el subtotal.
+// Owner: Hazem
 #include "Shopping/CartManagerhazem.h"
 
 #include <climits>

@@ -5,7 +5,7 @@
 #include <QString>
 
 #include "Address.h"
-
+// El file da mas2ool 3an ta3reef bayanat el users el mosagaleen fel system, zay el esm wel email wel phone wel address wel user role.
 namespace pharmacy {
 
 class User

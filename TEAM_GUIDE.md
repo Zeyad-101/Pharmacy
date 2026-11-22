@@ -16,9 +16,10 @@ SmartPharmacy/
 ├── Accounts/             Users, login and admin tools
 ├── Repositories/         Loading and saving data to the JSON files
 ├── Utils/                Shared validation helpers
-├── Core/                 Empty placeholders, not used by the build
 └── Data/                 JSON data files (products, users, orders, promo codes)
 ```
+
+`main.cpp` creates one shared instance of every repository, calls `load()` on each, creates all the managers and, on the first run, the default admin account (`admin` / `Admin@1234`). The path of the `Data/` folder comes from the `DATA_DIR` definition in `CMakeLists.txt`.
 
 All files are already listed in `CMakeLists.txt`, so you do **not** need to edit it when you start writing code in your files.
 
@@ -85,12 +86,16 @@ If the build seems stuck on old settings, use **Build → Clear CMake Configurat
 
 Messages like `AutoGen warning: "...h" is empty` are normal while files are still empty. They disappear once the files contain code.
 
-## 7. Using Git
+## 7. Using Git (feature branches)
 
-### Every time before you start working
+Nobody pushes directly to `main`. Everyone works on their own feature branch, and the **leader merges** finished branches into `main`.
+
+### Start a new piece of work
 
 ```bash
+git checkout main
 git pull
+git checkout -b feature/<your-name>-<topic>      # for example feature/hazem-cart
 ```
 
 ### After you finish a piece of work
@@ -99,8 +104,17 @@ git pull
 git status
 git add Shopping/CartManagerhazem.h Shopping/CartManagerhazem.cpp
 git commit -m "Add cart item management"
-git pull --rebase
-git push
+git push -u origin feature/<your-name>-<topic>
+```
+
+Then tell the leader that your branch is ready. The leader merges it into `main` with a normal merge commit, builds the project, and pushes `main`.
+
+### Keep your branch up to date
+
+```bash
+git checkout feature/<your-name>-<topic>
+git fetch origin
+git merge origin/main
 ```
 
 Tips:
@@ -108,5 +122,51 @@ Tips:
 - Replace the file names with **your own files**. Avoid `git add .` because it can add files you did not mean to share.
 - Never commit the `build/` folder or `.qtcreator/` settings. They are already ignored.
 - Never use `git push --force`. It can delete your teammates' work.
-- If `git pull --rebase` reports a conflict, stop and ask the team before continuing.
+- If a merge reports a conflict, stop and ask the team before continuing.
 - Build the project before you push, so nobody pulls code that does not compile.
+- Running the program creates the admin in `Data/users.json` and saves orders in `Data/orders.json`. Do not commit those test changes: undo them with `git checkout -- Data/users.json Data/orders.json`.
+
+### Merge order used for the backend integration
+
+The backend branches were merged into `main` in this order, because each one uses the one before it:
+
+1. `feature/heba-inventory-products` (ProductRepository, InventoryManager — used by almost everyone)
+2. `feature/judy-medicine-categories` (MedicineManager, CategoryManager — needs Heba)
+3. `feature/rodina-accounts` and then `fayad-admin-validation-orders` (Rodina needs Fayad's Validation, Fayad needs Rodina's Authentication and Judy's MedicineManager)
+4. `feature/abdel-checkout-orders` (CheckoutManager, OrderManager — needs everyone)
+
+Hazem's cart and promo code files were already on `main`.
+
+## 8. Code rules
+
+- **Header comment:** every member file starts with a Franco comment line that says what the file does, then an Owner line on its own line:
+  ```cpp
+  // El file da mas2ool 3an el shopping cart: add w remove lel products, ta3deel el kameya, we 7esab el subtotal.
+  // Owner: Hazem
+  ```
+- **Namespace and headers:** everything is inside `namespace pharmacy`, every header starts with `#pragma once`.
+- **Classes:** use `class`. A `struct` is allowed **only** for plain request/result data with no functions, for example `CheckoutRequest`, `CheckoutResult`, `CheckoutTotals`, `PriceChange` and `PromoApplication`.
+- **Qt types only:** `QString`, `QList`, `QStringList`, `std::optional` for "maybe not found". No `std::string`, no `std::vector`, no `double` for money.
+- **No console I/O in the backend:** no `cout`, `cin`, `printf` or `qDebug` in the manager or repository files. Only `main.cpp` prints, using `QTextStream`.
+- **JSON only in repositories:** only the files in `Repositories/` read or write files and use `QJson...`. Managers talk to repositories.
+- **Results:** functions that can fail return an `enum class` result (`MedicineResult`, `StockResult`, `CartResult`, `PromoResult`, `UserResult`, `LoginResult`, `AdminResult`, `OrderResult`, `CheckoutStatus`).
+
+## 9. Cross-member interfaces (as they exist in the code)
+
+These are the functions one member's code calls in another member's code. Do not rename or change them without telling the team.
+
+| Provider | Class / function | Used by |
+|---|---|---|
+| Heba | `ProductRepository::load()`, `lastError()`, `getAllProducts()`, `std::optional<Product> getProductById(const QString&) const`, `existsById(const QString&) const`, `existsByCode(const QString&) const`, `saveProduct(const Product&)`, `updateProduct(const Product&)`, `deleteProduct(const QString&)` | Judy, Hazem, Abdelrahman, main.cpp |
+| Heba | `enum class StockResult { Success, InvalidQuantity, ProductNotFound, InsufficientStock, Expired, StorageError }` | Abdelrahman |
+| Heba | `InventoryManager::getStock(const QString&) const` → `std::optional<int>`, `isAvailable(const QString&) const`, `hasSufficientStock(const QString&, int) const`, `increaseStock(const QString&, int)` → `StockResult`, `decreaseStock(const QString&, int)` → `StockResult`, `getLowStockProducts(int) const`, `getExpiredProducts() const` | Hazem, Abdelrahman |
+| Judy | `MedicineManager::addMedicine(const Product&)`, `updateMedicine(const Product&)`, `deleteMedicine(const QString&)` → `MedicineResult`; `findMedicineById(const QString&) const` → `std::optional<Product>`; `searchMedicines(const QString&) const`, `getAllMedicines() const`, `getMedicinesByCategory(const QString&) const` → `QList<Product>` | Fayad |
+| Judy | `CategoryManager::getAllCategories()`, `isValidCategory(const QString&)`, `normalizeCategory(const QString&)` (all static). Categories: `Medicines`, `Skincare`, `Vitamins & Supplements`, `First Aid & Medical Supplies` | Judy, GUI |
+| Hazem | `CartManager::getItems() const` → `QList<CartItem>`, `isEmpty() const`, `clear()` | Abdelrahman |
+| Hazem | `PromoCodeManager::findValidPromo(const QString&) const` → `std::optional<PromoCode>` | Abdelrahman |
+| Rodina | `UserRepository::getUserById(const QString&) const` → `std::optional<User>` | Abdelrahman |
+| Rodina | `Authentication::currentUser() const` → `std::optional<User>`, `isCurrentUserAdmin() const`, static `hashPassword(const QString&)` | Fayad, main.cpp |
+| Fayad | `Validation::isNonEmptyText`, `isValidEmail`, `isValidPhone`, `isValidPassword` (all static, `const QString&` → `bool`) | Rodina |
+| Fayad | `OrderRepository::saveOrder(const Order&)`, `updateOrder(const Order&)`, `getOrderById(const QString&) const` → `std::optional<Order>`, `getAllOrders() const`, `getOrdersByCustomer(const QString&) const` → `QList<Order>` | Abdelrahman |
+| Abdelrahman | `OrderManager::generateOrderId() const`, `createOrder(const Order&)`, `cancelOrder(const QString&)`, `updateOrderStatus(const QString&, const QString&)` → `OrderResult` | Abdelrahman, GUI |
+| Abdelrahman | `CheckoutManager::previewTotals(const QString&) const` → `CheckoutTotals`, `placeOrder(const CheckoutRequest&)` → `CheckoutResult` (statuses include `PriceChanged` and `PrescriptionRequired`) | GUI |

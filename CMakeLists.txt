@@ -91,6 +91,8 @@ target_include_directories(SmartPharmacy PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Models
 )
 
+target_compile_definitions(SmartPharmacy PRIVATE DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Data")
+
 target_link_libraries(SmartPharmacy PRIVATE Qt${QT_VERSION_MAJOR}::Core)
 
 include(GNUInstallDirs)

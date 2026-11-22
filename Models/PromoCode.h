@@ -3,7 +3,7 @@
 #include <QDate>
 #include <QJsonObject>
 #include <QString>
-
+// El file da mas2ool 3an ta3reef bayanat promo codes, zay el code wel discount percentage wel expiry date wel active status.
 namespace pharmacy {
 
 class PromoCode

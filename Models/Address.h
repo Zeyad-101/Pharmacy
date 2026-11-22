@@ -2,7 +2,7 @@
 
 #include <QJsonObject>
 #include <QString>
-
+// El file da mas2ool 3an ta3reef bayanat el address, zay el city wel street wel building number wel apartment number wel postal code.
 namespace pharmacy {
 
 class Address

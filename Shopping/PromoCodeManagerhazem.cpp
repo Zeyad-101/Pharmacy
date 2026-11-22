@@ -1,3 +1,5 @@
+// El file da mas2ool 3an el promo codes: check en el code mawgood w active w msh expired, we 7esab el discount.
+// Owner: Hazem
 #include "Shopping/PromoCodeManagerhazem.h"
 
 #include <QDate>
@@ -78,6 +80,15 @@ PromoApplication PromoCodeManager::applyPromoCode(const QString& code, qint64 su
 
 std::optional<PromoCode> PromoCodeManager::findPromoCode(const QString& code) const
 {
+    return repository.getPromoCodeByCode(code);
+}
+
+std::optional<PromoCode> PromoCodeManager::findValidPromo(const QString& code) const
+{
+    // Return the promo code only if it exists, is active and is not expired
+    if (validatePromoCode(code) != PromoResult::Success) {
+        return std::nullopt;
+    }
     return repository.getPromoCodeByCode(code);
 }
 
