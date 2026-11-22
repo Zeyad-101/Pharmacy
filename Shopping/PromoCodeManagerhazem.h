@@ -37,6 +37,7 @@ public:
     PromoResult validatePromoCode(const QString& code) const;
     PromoApplication applyPromoCode(const QString& code, qint64 subtotalMinor) const;
     std::optional<PromoCode> findPromoCode(const QString& code) const;
+    std::optional<PromoCode> findValidPromo(const QString& code) const;
     QList<PromoCode> getAllPromoCodes() const;
 
 private:

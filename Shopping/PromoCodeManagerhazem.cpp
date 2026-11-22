@@ -81,6 +81,15 @@ std::optional<PromoCode> PromoCodeManager::findPromoCode(const QString& code) co
     return repository.getPromoCodeByCode(code);
 }
 
+std::optional<PromoCode> PromoCodeManager::findValidPromo(const QString& code) const
+{
+    // Return the promo code only if it exists, is active and is not expired
+    if (validatePromoCode(code) != PromoResult::Success) {
+        return std::nullopt;
+    }
+    return repository.getPromoCodeByCode(code);
+}
+
 QList<PromoCode> PromoCodeManager::getAllPromoCodes() const
 {
     return repository.getAllPromoCodes();
