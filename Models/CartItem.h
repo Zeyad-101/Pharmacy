@@ -4,7 +4,7 @@
 #include <QString>
 
 #include "Product.h"
-
+// El file da mas2ool 3an tamseel kol product gowwa el shopping cart, wet7deed el quantity wel unit price we 7esab el total price.
 namespace pharmacy {
 
 class CartItem

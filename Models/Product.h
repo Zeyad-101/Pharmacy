@@ -3,7 +3,7 @@
 #include <QDate>
 #include <QJsonObject>
 #include <QString>
-
+// El file da mas2ool 3an ta3reef bayanat el products wel adweya fel pharmacy, zay el esm wel se3r wel category wel stock wel expiry date.
 namespace pharmacy {
 
 class Product
