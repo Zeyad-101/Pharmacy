@@ -34,7 +34,7 @@ jobs:
           cp -r Data/. "$RUNNER_TEMP/data_seed/"
           ls -l "$RUNNER_TEMP/data_seed"
 
-      - name: Install Qt 6.8.3 (MinGW 64-bit kit) + MinGW 13.1 + Ninja
+      - name: Install Qt 6.8.3 (MinGW 64-bit kit) + MinGW 13.1 + CMake + Ninja (Qt's own tools, like Qt Creator)
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
@@ -42,21 +42,31 @@ jobs:
           target: 'desktop'
           arch: 'win64_mingw'
           modules: 'qtshadertools'
-          tools: 'tools_mingw1310,qt.tools.win64_mingw1310 tools_ninja,qt.tools.ninja'
+          tools: 'tools_mingw1310,qt.tools.win64_mingw1310 tools_cmake,qt.tools.cmake tools_ninja,qt.tools.ninja'
           cache: true
 
-      - name: Put the Qt MinGW 13.1 compiler and Ninja first on PATH (not the runner's own MinGW)
+      - name: Put Qt's MinGW 13.1, CMake and Ninja first on PATH (not the runner's own tools)
         run: |
           TOOLS="$(cygpath -u "$IQTA_TOOLS")"
-          echo "$(cygpath -w "$TOOLS/mingw1310_64/bin")" >> "$GITHUB_PATH"
+          # GITHUB_PATH entries added later come first: compiler first of all
           echo "$(cygpath -w "$TOOLS/Ninja")" >> "$GITHUB_PATH"
+          echo "$(cygpath -w "$TOOLS/CMake_64/bin")" >> "$GITHUB_PATH"
+          echo "$(cygpath -w "$TOOLS/mingw1310_64/bin")" >> "$GITHUB_PATH"
           echo "MINGW_BIN=$TOOLS/mingw1310_64/bin" >> "$GITHUB_ENV"
+          echo "QT_TOOLS=$TOOLS" >> "$GITHUB_ENV"
 
       - name: Check the toolchain matches the Qt kit
         run: |
           echo "QT_ROOT_DIR=$QT_ROOT_DIR"
           which g++ cmake ninja
           g++ --version | head -1
+          cmake --version | head -1
+          case "$(which cmake)" in
+            "$QT_TOOLS"/CMake_64/*) echo "OK: cmake comes from the Qt tools" ;;
+            *) echo "::error::cmake on PATH is not Qt's CMake"; exit 1 ;;
+          esac
+          echo "libstdc++-6.dll on PATH (the first one must be Qt's MinGW):"
+          for d in $(echo "$PATH" | tr ':' ' '); do [ -f "$d/libstdc++-6.dll" ] && echo "  $d"; done; true
           case "$(which g++)" in
             "$MINGW_BIN"/*) echo "OK: g++ comes from the Qt MinGW 13.1 tools" ;;
             *) echo "::error::g++ on PATH is not the Qt MinGW 13.1 compiler"; exit 1 ;;
@@ -69,7 +79,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
-            -DCMAKE_C_COMPILER="$MINGW_BIN/gcc.exe" -DCMAKE_CXX_COMPILER="$MINGW_BIN/g++.exe" 2>&1 | tee configure.log
+            -DCMAKE_CXX_COMPILER="$MINGW_BIN/g++.exe" 2>&1 | tee configure.log
           if grep -iE "CMake Warning|warning:" configure.log; then echo "::error::CMake printed warnings"; exit 1; fi
 
       - name: Build (fail on any error or warning)
@@ -180,7 +190,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Install Qt 6.8.3 (MinGW 64-bit kit) + MinGW 13.1 + Ninja
+      - name: Install Qt 6.8.3 (MinGW 64-bit kit) + MinGW 13.1 + CMake + Ninja (Qt's own tools, like Qt Creator)
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
@@ -188,21 +198,31 @@ jobs:
           target: 'desktop'
           arch: 'win64_mingw'
           modules: 'qtshadertools'
-          tools: 'tools_mingw1310,qt.tools.win64_mingw1310 tools_ninja,qt.tools.ninja'
+          tools: 'tools_mingw1310,qt.tools.win64_mingw1310 tools_cmake,qt.tools.cmake tools_ninja,qt.tools.ninja'
           cache: true
 
-      - name: Put the Qt MinGW 13.1 compiler and Ninja first on PATH (not the runner's own MinGW)
+      - name: Put Qt's MinGW 13.1, CMake and Ninja first on PATH (not the runner's own tools)
         run: |
           TOOLS="$(cygpath -u "$IQTA_TOOLS")"
-          echo "$(cygpath -w "$TOOLS/mingw1310_64/bin")" >> "$GITHUB_PATH"
+          # GITHUB_PATH entries added later come first: compiler first of all
           echo "$(cygpath -w "$TOOLS/Ninja")" >> "$GITHUB_PATH"
+          echo "$(cygpath -w "$TOOLS/CMake_64/bin")" >> "$GITHUB_PATH"
+          echo "$(cygpath -w "$TOOLS/mingw1310_64/bin")" >> "$GITHUB_PATH"
           echo "MINGW_BIN=$TOOLS/mingw1310_64/bin" >> "$GITHUB_ENV"
+          echo "QT_TOOLS=$TOOLS" >> "$GITHUB_ENV"
 
       - name: Check the toolchain matches the Qt kit
         run: |
           echo "QT_ROOT_DIR=$QT_ROOT_DIR"
           which g++ cmake ninja
           g++ --version | head -1
+          cmake --version | head -1
+          case "$(which cmake)" in
+            "$QT_TOOLS"/CMake_64/*) echo "OK: cmake comes from the Qt tools" ;;
+            *) echo "::error::cmake on PATH is not Qt's CMake"; exit 1 ;;
+          esac
+          echo "libstdc++-6.dll on PATH (the first one must be Qt's MinGW):"
+          for d in $(echo "$PATH" | tr ':' ' '); do [ -f "$d/libstdc++-6.dll" ] && echo "  $d"; done; true
           case "$(which g++)" in
             "$MINGW_BIN"/*) echo "OK: g++ comes from the Qt MinGW 13.1 tools" ;;
             *) echo "::error::g++ on PATH is not the Qt MinGW 13.1 compiler"; exit 1 ;;
@@ -639,7 +659,7 @@ jobs:
           set -o pipefail
           cmake -S "$RUNNER_TEMP/clickthrough" -B "$RUNNER_TEMP/clickthrough/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" -DREPO="$(cygpath -m "$GITHUB_WORKSPACE")" \
-            -DCMAKE_C_COMPILER="$MINGW_BIN/gcc.exe" -DCMAKE_CXX_COMPILER="$MINGW_BIN/g++.exe"
+            -DCMAKE_CXX_COMPILER="$MINGW_BIN/g++.exe"
           cmake --build "$RUNNER_TEMP/clickthrough/build" --parallel 2>&1 | tee clickthrough-build.log
 
       - name: Run the click-through (55 checks; fails on any check or any Qt/QML warning)
@@ -649,7 +669,9 @@ jobs:
           result=1
           for attempt in 1 2; do
             set +e
-            "$RUNNER_TEMP/clickthrough/build/ui3.exe" clickthrough-shots > "clickthrough-attempt$attempt.log" 2>&1
+            # Explicit PATH: Qt's MinGW runtime and Qt's DLLs only (Git Bash ships another libstdc++-6.dll)
+            env PATH="$MINGW_BIN:$(cygpath -u "$QT_ROOT_DIR")/bin:/c/Windows/System32:/c/Windows" \
+              "$RUNNER_TEMP/clickthrough/build/ui3.exe" clickthrough-shots > "clickthrough-attempt$attempt.log" 2>&1
             code=$?
             set -e
             grep -E "^(PASS|FAIL)" "clickthrough-attempt$attempt.log" | sort | uniq -c | sort -rn | head -3 || true
