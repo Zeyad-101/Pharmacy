@@ -18,7 +18,7 @@ public:
 
     QList<Order> getAllOrders() const;
     std::optional<Order> getOrderById(const QString& id) const;
-    QList<Order> getOrdersByCustomerId(const QString& customerId) const;
+    QList<Order> getOrdersByCustomer(const QString& customerId) const;
     bool existsById(const QString& id) const;
 
     bool saveOrder(const Order& order);

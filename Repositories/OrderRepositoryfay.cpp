@@ -102,7 +102,7 @@ std::optional<Order> OrderRepository::getOrderById(const QString& id) const
     return orders[i];
 }
 
-QList<Order> OrderRepository::getOrdersByCustomerId(const QString& customerId) const
+QList<Order> OrderRepository::getOrdersByCustomer(const QString& customerId) const
 {
     QList<Order> result;
     if (customerId.isEmpty()) {

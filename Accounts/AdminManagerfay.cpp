@@ -109,7 +109,7 @@ AdminResult AdminManager::getOrdersByCustomerId(const QString& customerId, QList
     if (!Validation::isValidId(customerId)) {
         return AdminResult::InvalidData;
     }
-    out = orderRepository.getOrdersByCustomerId(customerId);
+    out = orderRepository.getOrdersByCustomer(customerId);
     return AdminResult::Success;
 }
 
