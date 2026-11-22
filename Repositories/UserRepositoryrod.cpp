@@ -135,7 +135,13 @@ bool UserRepository::writeToFile(const QList<User>& list)
         error = "Cannot write users file";
         return false;
     }
-    file.write(QJsonDocument(array).toJson(QJsonDocument::Indented));
+    // Stop if the data could not be written, and keep the old file
+    const QByteArray data = QJsonDocument(array).toJson(QJsonDocument::Indented);
+    if (file.write(data) != data.size()) {
+        error = "Failed to write users file";
+        file.cancelWriting();
+        return false;
+    }
     if (!file.commit()) {
         error = "Failed to save users file";
         return false;

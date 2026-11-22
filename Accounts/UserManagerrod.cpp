@@ -16,6 +16,9 @@ QString UserManager::generateUserId() const
 {
     int maxNum = 0;
     for (const User& u : repository.getAllUsers()) {
+        // Only customer ids look like "U001", skip others such as the admin "A001"
+        if (!u.getId().startsWith(QLatin1Char('U')))
+            continue;
         bool ok = false;
         const int n = u.getId().mid(1).toInt(&ok);
         if (ok && n > maxNum)
