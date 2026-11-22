@@ -132,7 +132,7 @@ CheckoutResult CheckoutManager::placeOrder(const CheckoutRequest& request)
     }
 
     // 3. Every product must still exist and have enough (non-expired) stock.
-    // TODO(leader decision): requiresPrescription is not enforced at checkout yet.
+    // A prescription product needs the customer to confirm the prescription first.
     QList<Product> currentProducts;
     for (const CartItem& item : items) {
         const std::optional<Product> current = products.getProductById(item.getProductId());
@@ -141,6 +141,9 @@ CheckoutResult CheckoutManager::placeOrder(const CheckoutRequest& request)
         }
         if (!item.isStockSufficient(*current)) {
             return makeResult(CheckoutStatus::OutOfStock, item.getProductId());
+        }
+        if (current->getRequiresPrescription() && !request.prescriptionConfirmed) {
+            return makeResult(CheckoutStatus::PrescriptionRequired, item.getProductId());
         }
         currentProducts.append(*current);
     }

@@ -22,6 +22,7 @@ struct CheckoutRequest {
     Address deliveryAddress;
     QString promoCode;
     bool acceptPriceChanges = false;
+    bool prescriptionConfirmed = false;
 };
 
 struct PriceChange {
@@ -47,7 +48,8 @@ enum class CheckoutStatus {
     PriceChanged,
     InvalidPromoCode,
     StorageError,
-    AlreadyInProgress
+    AlreadyInProgress,
+    PrescriptionRequired
 };
 
 struct CheckoutResult {
