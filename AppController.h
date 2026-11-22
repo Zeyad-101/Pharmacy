@@ -181,6 +181,8 @@ private:
     QString productName(const QString& productId) const;
 
     QString m_dataDir;
+    // Highest product number added in this session (new product ids are never reused, see nextProductId)
+    int m_highestIssuedProductNumber = 0;
 
     ProductRepository m_productRepository;
     UserRepository m_userRepository;

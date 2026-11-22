@@ -1517,17 +1517,27 @@ QVariantList AppController::adminProducts(const QString& search) const
 
 QString AppController::nextProductId() const
 {
-    // The backend has no id generator for products: next "P" number after the biggest one
-    int biggest = 0;
-    const QList<Product> list = m_productRepository.getAllProducts();
-    for (const Product& product : list) {
-        const QString id = product.getId();
-        if (id.startsWith(QLatin1Char('P'))) {
-            bool ok = false;
-            const int number = id.mid(1).toInt(&ok);
-            if (ok) {
-                biggest = std::max(biggest, number);
-            }
+    // The backend has no id generator for products. New id = (highest numeric P-id ever seen) + 1, never the
+    // product count, and the highest id is taken from the current products, from every order line (orders keep
+    // the product id) and from the ids issued in this session, so a removed product's id is never handed out again.
+    auto numberOf = [](const QString& id) {
+        if (!id.startsWith(QLatin1Char('P'))) {
+            return 0;
+        }
+        bool ok = false;
+        const int number = id.mid(1).toInt(&ok);
+        return ok ? number : 0;
+    };
+    int biggest = m_highestIssuedProductNumber;
+    const QList<Product> products = m_productRepository.getAllProducts();
+    for (const Product& product : products) {
+        biggest = std::max(biggest, numberOf(product.getId()));
+    }
+    const QList<Order> orders = m_orderManager.getAllOrders();
+    for (const Order& order : orders) {
+        const QList<CartItem> items = order.getItems();
+        for (const CartItem& item : items) {
+            biggest = std::max(biggest, numberOf(item.getProductId()));
         }
     }
     return QStringLiteral("P%1").arg(biggest + 1, 3, 10, QLatin1Char('0'));
@@ -1635,6 +1645,14 @@ QVariantMap AppController::saveProduct(const QVariantMap& form)
             return fail(QStringLiteral("The expiry date has already passed."), QStringLiteral("expiry"));
         }
         return fail(adminMessage(status), field);
+    }
+    if (isNew && id.startsWith(QLatin1Char('P'))) {
+        // Remember the id so it is not issued again in this session, even if the product is removed
+        bool numeric = false;
+        const int number = id.mid(1).toInt(&numeric);
+        if (numeric) {
+            m_highestIssuedProductNumber = std::max(m_highestIssuedProductNumber, number);
+        }
     }
     result.insert(QStringLiteral("ok"), true);
     result.insert(QStringLiteral("message"), (isNew ? QStringLiteral("Product added: ") : QStringLiteral("Product saved: ")) + name);
