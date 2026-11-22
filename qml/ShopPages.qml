@@ -208,6 +208,7 @@ QtObject {
                             hoverFill: Theme.royal600
                             iconName: "plus"
                             iconColor: Theme.white
+                            visible: !App.isAdmin      // admins do not shop
                             enabled: home.heroProduct.inStock === true
                             onClicked: {
                                 const result = App.addToCart("P004", 1)
@@ -1147,8 +1148,17 @@ QtObject {
                                 }
                             }
                         }
+                        // Admins do not shop: they get a link to the product in the admin area instead
+                        Controls.PcButton {
+                            visible: App.isAdmin && page.found
+                            variant: "secondary"
+                            text: "Manage in admin"
+                            iconName: "arrowR"
+                            onClicked: App.go("admin", { tab: "products", edit: page.productId })
+                        }
                         // Buy row
                         Row {
+                            visible: !App.isAdmin
                             spacing: 12
                             Controls.QuantitySelector {
                                 value: page.quantity
@@ -1173,6 +1183,7 @@ QtObject {
                         }
                         // Buy Now: Royal Glow gradient + glow (adds the quantity, then checkout)
                         Controls.PcButton {
+                            visible: !App.isAdmin
                             width: 576
                             gradient: true
                             text: "Buy Now"
@@ -1426,6 +1437,7 @@ QtObject {
                 anchors.bottomMargin: 36
                 spacing: 16
                 Row {
+                    visible: !App.isAdmin      // admins do not shop
                     spacing: 12
                     Controls.QuantitySelector {
                         value: quickView.quantity

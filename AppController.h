@@ -122,6 +122,26 @@ public:
                                        bool prescriptionConfirmed, bool acceptPriceChanges);
     Q_INVOKABLE QVariantMap order(const QString& orderId) const;
 
+    // My account: profile, password, own orders (OrderManager decides what can be cancelled)
+    Q_INVOKABLE QVariantMap updateProfile(const QVariantMap& form);
+    Q_INVOKABLE QVariantMap changePassword(const QString& currentPassword, const QString& newPassword,
+                                           const QString& confirmPassword);
+    Q_INVOKABLE QVariantList myOrders() const;
+    Q_INVOKABLE QVariantMap cancelMyOrder(const QString& orderId);
+
+    // Admin area (every call checks Authentication::isCurrentUserAdmin)
+    Q_INVOKABLE QVariantMap adminSummary(int lowStockThreshold) const;
+    Q_INVOKABLE QVariantList adminProducts(const QString& search) const;
+    Q_INVOKABLE QVariantMap adminProductForm(const QString& productId) const;
+    Q_INVOKABLE QVariantMap saveProduct(const QVariantMap& form);
+    Q_INVOKABLE QVariantMap removeProduct(const QString& productId);
+    Q_INVOKABLE QVariantList adminOrders(const QString& status) const;
+    Q_INVOKABLE QVariantMap updateOrderStatus(const QString& orderId, const QString& newStatus);
+    Q_INVOKABLE QVariantList lowStockProducts(int threshold) const;
+    Q_INVOKABLE QVariantList expiredProducts() const;
+    Q_INVOKABLE QVariantMap increaseStock(const QString& productId, const QString& quantityText);
+    Q_INVOKABLE QStringList productCategories() const;
+
     // Icons: the SVG with its colour replaced, as a data URL
     Q_INVOKABLE QString iconSource(const QString& name, const QColor& color);
 
@@ -132,6 +152,8 @@ signals:
     void toastRequested(const QString& kind, const QString& title, const QString& message);
     void cartDrawerRequested();
     void quickViewRequested(const QString& productId);
+    // Products, stock or orders changed (admin actions, cancellations, new orders): pages re-read
+    void dataChanged();
 
 private:
     QList<Product> baseProducts(const QString& category, const QString& search) const;
@@ -146,6 +168,16 @@ private:
     static Address addressFrom(const QVariantMap& map);
     static QVariantMap addressToMap(const Address& address);
     static QString statusLabel(const QString& status);
+    void resolveRoute(QString* page, QVariantMap* params) const;
+    static QString adminMessage(AdminResult result);
+    static QString stockMessage(StockResult result);
+    static QString orderMessage(OrderResult result);
+    static bool parseMoney(const QString& text, qint64* amountMinor);
+    static QString userField(UserResult result);
+    QVariantMap orderSummaryMap(const Order& order) const;
+    QVariantMap adminProductRow(const Product& product) const;
+    QString nextProductId() const;
+    bool ownsOrder(const Order& order) const;
     QString productName(const QString& productId) const;
 
     QString m_dataDir;

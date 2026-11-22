@@ -35,9 +35,15 @@ Basic.ApplicationWindow {
             toastModel.append({ toastKind: kind, toastTitle: title, toastMessage: message })
         }
         function onCartDrawerRequested() {
+            if (App.isAdmin)
+                return   // admins do not shop
             drawer.justAdded = true
             drawer.refresh()
             drawerPopup.open()
+        }
+        function onSessionChanged() {
+            if (App.isAdmin)
+                drawerPopup.close()
         }
         function onQuickViewRequested(productId: string) {
             quickView.productId = productId
@@ -81,7 +87,8 @@ Basic.ApplicationWindow {
         onSignOutRequested: {
             App.logout()
             App.showToast("info", "Signed out", "See you soon.")
-            if (App.currentPage === "checkout")
+            // Pages that need a session (or an admin) are left for the home page
+            if (["checkout", "account", "orderDetails", "admin", "confirmation"].indexOf(App.currentPage) !== -1)
                 App.go("home")
         }
     }
@@ -121,7 +128,21 @@ Basic.ApplicationWindow {
                                    : App.currentPage === "confirmation" ? confirmationPage
                                    : App.currentPage === "login" ? loginPage
                                    : App.currentPage === "register" ? registerPage
+                                   : App.currentPage === "account" ? accountPage
+                                   : App.currentPage === "orderDetails" ? orderDetailsPage
+                                   : App.currentPage === "admin" ? adminPage
                                    : homePage
+                    // Page change: a short fade-in (Theme.overlayDuration)
+                    onLoaded: pageFade.restart()
+                    NumberAnimation {
+                        id: pageFade
+                        target: pageLoader.item
+                        property: "opacity"
+                        from: 0
+                        to: 1
+                        duration: Theme.overlayDuration
+                        easing.type: Easing.OutCubic
+                    }
                 }
                 Controls.FooterDesktop {
                     visible: !window.checkoutMode
@@ -166,6 +187,18 @@ Basic.ApplicationWindow {
     Component {
         id: registerPage
         AccountPages.RegisterPage {}
+    }
+    Component {
+        id: accountPage
+        AccountPages.AccountPage {}
+    }
+    Component {
+        id: orderDetailsPage
+        AccountPages.OrderDetailsPage {}
+    }
+    Component {
+        id: adminPage
+        AdminPages.AdminPage {}
     }
 
     // ---------- Search suggestions (under the header search bar) ----------
@@ -263,7 +296,9 @@ Basic.ApplicationWindow {
 
     // ---------- Verification only (--shot) ----------
     // spec: "home", "shop", "shop:<category>", "search:<term>", "product:<id>", "quickview:<id>", "drawer", "suggest:<term>",
-    //       "cart", "cartpromo", "cartlong", "cartempty", "login", "register", "checkout", "confirmation"
+    //       "cart", "cartpromo", "cartlong", "cartempty", "login", "register", "checkout", "confirmation",
+    //       "account", "password", "orders", "orderdetails[:index]", "admin", "adminproducts", "adminorders",
+    //       "admininventory", "adminform[:<id>]", "adminpdp", "adminorderdetails"
     function prepareShot(spec: var): void {
         const text = String(spec)
         const colon = text.indexOf(":")
@@ -300,8 +335,8 @@ Basic.ApplicationWindow {
         } else if (name === "login" || name === "register") {
             App.go(name)
         } else if (name === "checkout" || name === "confirmation") {
-            // Verification only: the default admin account places a demo order on a throwaway data copy
-            App.login("admin", "Admin@1234")
+            // Verification only (Data/ is restored afterwards): a demo customer places a demo order
+            demoCustomer()
             App.addToCart("P004", 1)
             App.addToCart("P009", 1)
             App.addToCart("P001", 1)
@@ -313,6 +348,32 @@ Basic.ApplicationWindow {
                                               false, false, false)
                 App.go("confirmation", { orderId: result.orderId })
             }
+        } else if (name === "account" || name === "password" || name === "orders" || name === "orderdetails") {
+            const ids = demoOrders()
+            demoCustomer()
+            if (name === "orderdetails")
+                App.go("orderDetails", { orderId: ids[arg === "" ? 1 : parseInt(arg, 10)] })
+            else
+                App.go("account", { tab: name === "account" ? "profile" : name })
+        } else if (name === "admin" || name === "adminproducts" || name === "adminorders" || name === "admininventory"
+                   || name === "adminform" || name === "adminpdp" || name === "adminorderdetails") {
+            const placed = demoOrders()
+            App.login("admin", "Admin@1234")
+            if (name === "adminproducts")
+                App.go("admin", { tab: "products" })
+            else if (name === "adminorders")
+                App.go("admin", { tab: "orders" })
+            else if (name === "admininventory")
+                App.go("admin", { tab: "inventory" })
+            else if (name === "adminform") {
+                overlayShot = true
+                App.go("admin", { tab: "products", edit: arg === "" ? "P004" : arg })
+            } else if (name === "adminpdp")
+                App.go("product", { id: "P004" })
+            else if (name === "adminorderdetails")
+                App.go("orderDetails", { orderId: placed[0] })
+            else
+                App.go("admin")
         } else if (name === "suggest") {
             overlayShot = true
             header.setSearch(arg)
@@ -320,6 +381,32 @@ Basic.ApplicationWindow {
         } else {
             App.go("home")
         }
+    }
+    // Verification only: the demo customer (created on first use) and three demo orders in different states
+    function demoCustomer(): void {
+        if (!App.login("salma", "Salma@2026").ok)
+            App.registerCustomer({ username: "salma", email: "salma@example.com", phone: "01012345678", password: "Salma@2026",
+                                   city: "Giza", street: "Pyramids Road", building: "7", apartment: "3", postalCode: "12511" })
+    }
+    function demoOrders(): var {
+        demoCustomer()
+        const address = { city: "Giza", street: "Pyramids Road", building: "7", apartment: "3", postalCode: "12511" }
+        const baskets = [["P004", "P009", "P001"], ["P005", "P011"], ["P012"]]
+        const ids = []
+        for (let i = 0; i < baskets.length; ++i) {
+            for (let j = 0; j < baskets[i].length; ++j)
+                App.addToCart(baskets[i][j], 1)
+            if (i === 0)
+                App.applyPromo("WELLNESS15")
+            ids.push(App.placeOrder(address, false, false, false).orderId)
+        }
+        App.cancelMyOrder(ids[2])
+        App.login("admin", "Admin@1234")
+        App.updateOrderStatus(ids[0], "confirmed")
+        App.updateOrderStatus(ids[0], "processing")
+        App.updateOrderStatus(ids[0], "shipped")
+        App.logout()
+        return ids
     }
     function isOverlayShot(): var {
         return overlayShot

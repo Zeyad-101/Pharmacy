@@ -249,18 +249,43 @@ QVariantMap AppController::pageParams() const
     return m_pageParams;
 }
 
+// UI route rules: admins never see the bag or the checkout, the admin area needs an admin, the account needs a session
+void AppController::resolveRoute(QString* page, QVariantMap* params) const
+{
+    const bool accountPage = *page == QLatin1String("account") || *page == QLatin1String("orderDetails");
+    if (isAdmin() && (*page == QLatin1String("cart") || *page == QLatin1String("checkout"))) {
+        *page = QStringLiteral("admin");
+        *params = QVariantMap();
+    } else if (*page == QLatin1String("admin") && !isAdmin()) {
+        *params = QVariantMap();
+        if (isLoggedIn()) {
+            *page = QStringLiteral("home");
+        } else {
+            *page = QStringLiteral("login");
+            params->insert(QStringLiteral("next"), QStringLiteral("admin"));
+        }
+    } else if (accountPage && !isLoggedIn()) {
+        *page = QStringLiteral("login");
+        *params = QVariantMap();
+        params->insert(QStringLiteral("next"), QStringLiteral("account"));
+    }
+}
+
 void AppController::go(const QString& page, const QVariantMap& params)
 {
     if (page.isEmpty()) {
         return;
     }
+    QString target = page;
+    QVariantMap targetParams = params;
+    resolveRoute(&target, &targetParams);
     m_history.append(qMakePair(m_currentPage, m_pageParams));
-    m_currentPage = page;
-    m_pageParams = params;
+    m_currentPage = target;
+    m_pageParams = targetParams;
 
     // Remember the products the customer opened ("Recently viewed")
-    if (page == QLatin1String("product")) {
-        const QString id = params.value(QStringLiteral("id")).toString();
+    if (target == QLatin1String("product")) {
+        const QString id = targetParams.value(QStringLiteral("id")).toString();
         if (!id.isEmpty()) {
             m_recentlyViewed.removeAll(id);
             m_recentlyViewed.prepend(id);
@@ -279,6 +304,7 @@ void AppController::back()
         m_currentPage = previous.first;
         m_pageParams = previous.second;
     }
+    resolveRoute(&m_currentPage, &m_pageParams);
     emit pageChanged();
 }
 
@@ -482,6 +508,15 @@ QVariantList AppController::recentlyViewed(const QString& excludeId, int count) 
 
 QVariantMap AppController::addToCart(const QString& productId, int quantity)
 {
+    if (isAdmin()) {
+        // UI rule: admins manage the shop, they do not buy (the buttons are hidden; this is the safety net)
+        QVariantMap refused;
+        refused.insert(QStringLiteral("ok"), false);
+        refused.insert(QStringLiteral("message"), QStringLiteral("Admin accounts cannot shop. Sign in as a customer to buy."));
+        refused.insert(QStringLiteral("count"), cartCount());
+        refused.insert(QStringLiteral("productName"), productName(productId));
+        return refused;
+    }
     const CartResult status = m_cartManager.addItem(productId, quantity);
     QVariantMap result;
     result.insert(QStringLiteral("ok"), status == CartResult::Success);
@@ -867,6 +902,7 @@ QVariantMap AppController::placeOrder(const QVariantMap& address, bool saveAddre
         }
         m_promoCode.clear();
         emit cartChanged();
+        emit dataChanged();   // stock went down, a new order exists
     }
     return result;
 }
@@ -874,7 +910,10 @@ QVariantMap AppController::placeOrder(const QVariantMap& address, bool saveAddre
 QVariantMap AppController::order(const QString& orderId) const
 {
     QVariantMap result;
-    const std::optional<Order> found = m_orderManager.getOrderById(orderId);
+    std::optional<Order> found = m_orderManager.getOrderById(orderId);
+    if (found && !ownsOrder(*found)) {
+        found.reset();   // customers only see their own orders
+    }
     result.insert(QStringLiteral("ok"), found.has_value());
     if (!found) {
         result.insert(QStringLiteral("message"), QStringLiteral("This order could not be found."));
@@ -912,6 +951,12 @@ QVariantMap AppController::order(const QString& orderId) const
     result.insert(QStringLiteral("discountText"), formatEgp(-found->getDiscountMinor()));
     result.insert(QStringLiteral("totalText"), formatEgp(found->getFinalPriceMinor()));
     result.insert(QStringLiteral("address"), addressToMap(found->getDeliveryAddress()));
+    const QVariantMap summary = orderSummaryMap(*found);
+    result.insert(QStringLiteral("canCancel"), summary.value(QStringLiteral("canCancel")));
+    result.insert(QStringLiteral("nextStatuses"), summary.value(QStringLiteral("nextStatuses")));
+    result.insert(QStringLiteral("customerName"), summary.value(QStringLiteral("customerName")));
+    result.insert(QStringLiteral("dateShortText"),
+                  QLocale(QLocale::English).toString(found->getCreatedAt(), QStringLiteral("d MMM, HH:mm")));
     return result;
 }
 
@@ -1122,5 +1167,594 @@ QString AppController::cartMessage(CartResult result)
     }
     return QStringLiteral("Something went wrong. Please try again.");
 }
+
+// ===================== My account =====================
+
+QString AppController::userField(UserResult result)
+{
+    switch (result) {
+    case UserResult::InvalidEmail:
+    case UserResult::DuplicateEmail:
+        return QStringLiteral("email");
+    case UserResult::InvalidPhone:
+        return QStringLiteral("phone");
+    case UserResult::WeakPassword:
+        return QStringLiteral("newPassword");
+    case UserResult::WrongPassword:
+        return QStringLiteral("currentPassword");
+    case UserResult::DuplicateUsername:
+        return QStringLiteral("username");
+    default:
+        return QString();
+    }
+}
+
+QVariantMap AppController::updateProfile(const QVariantMap& form)
+{
+    QVariantMap result;
+    const std::optional<User> user = m_authentication.currentUser();
+    if (!user) {
+        result.insert(QStringLiteral("ok"), false);
+        result.insert(QStringLiteral("message"), QStringLiteral("Please sign in again."));
+        result.insert(QStringLiteral("field"), QString());
+        return result;
+    }
+    const QString username = form.value(QStringLiteral("username")).toString().trimmed();
+    const QString email = form.value(QStringLiteral("email")).toString().trimmed();
+    const QString phone = form.value(QStringLiteral("phone")).toString().trimmed();
+    const UserResult status = m_userManager.updateProfile(user->getId(), username, email, phone, addressFrom(form));
+
+    QString message = status == UserResult::Success ? QStringLiteral("Your details have been saved.") : userMessage(status);
+    QString field = userField(status);
+    if (status == UserResult::InvalidData) {
+        // UserManager returns InvalidData for an empty username or a half-filled address
+        if (!Validation::isNonEmptyText(username)) {
+            message = QStringLiteral("Please enter a username.");
+            field = QStringLiteral("username");
+        } else {
+            message = QStringLiteral("Complete the address (city, street and building) or leave it empty.");
+            field = QStringLiteral("address");
+        }
+    }
+    result.insert(QStringLiteral("ok"), status == UserResult::Success);
+    result.insert(QStringLiteral("message"), message);
+    result.insert(QStringLiteral("field"), field);
+    if (status == UserResult::Success) {
+        emit sessionChanged();   // the header shows the (new) username
+    }
+    return result;
+}
+
+QVariantMap AppController::changePassword(const QString& currentPassword, const QString& newPassword,
+                                          const QString& confirmPassword)
+{
+    QVariantMap result;
+    const std::optional<User> user = m_authentication.currentUser();
+    QString message;
+    QString field;
+    bool ok = false;
+    if (!user) {
+        message = QStringLiteral("Please sign in again.");
+    } else if (currentPassword.isEmpty()) {
+        message = QStringLiteral("Please enter your current password.");
+        field = QStringLiteral("currentPassword");
+    } else if (newPassword != confirmPassword) {
+        // Checked here so the backend only receives a password the customer typed twice
+        message = QStringLiteral("The new passwords do not match.");
+        field = QStringLiteral("confirmPassword");
+    } else {
+        const UserResult status = m_userManager.changePassword(user->getId(), currentPassword, newPassword);
+        ok = status == UserResult::Success;
+        message = ok ? QStringLiteral("Your password has been changed.") : userMessage(status);
+        field = userField(status);
+    }
+    result.insert(QStringLiteral("ok"), ok);
+    result.insert(QStringLiteral("message"), message);
+    result.insert(QStringLiteral("field"), field);
+    return result;
+}
+
+bool AppController::ownsOrder(const Order& order) const
+{
+    const std::optional<User> user = m_authentication.currentUser();
+    return user && (user->isAdmin() || order.getCustomerId() == user->getId());
+}
+
+QVariantMap AppController::orderSummaryMap(const Order& order) const
+{
+    int units = 0;
+    QVariantList images;
+    const QList<CartItem> items = order.getItems();
+    for (const CartItem& item : items) {
+        units += item.getQuantity();
+        if (images.size() < 3) {
+            images.append(imageUrlFor(item.getProduct().getImagePath()));
+        }
+    }
+    const QString status = order.getStatus();
+    QString customerName = order.getCustomerId();
+    const std::optional<User> customer = m_userManager.getUserById(order.getCustomerId());
+    if (customer) {
+        customerName = customer->getUsername();
+    }
+    QVariantList next;
+    const QStringList nextStatuses = Order::nextStatusesFor(status);
+    for (const QString& value : nextStatuses) {
+        QVariantMap option;
+        option.insert(QStringLiteral("value"), value);
+        option.insert(QStringLiteral("label"), statusLabel(value));
+        next.append(option);
+    }
+
+    QVariantMap map;
+    map.insert(QStringLiteral("orderId"), order.getOrderId());
+    map.insert(QStringLiteral("customerId"), order.getCustomerId());
+    map.insert(QStringLiteral("customerName"), customerName);
+    map.insert(QStringLiteral("status"), status);
+    map.insert(QStringLiteral("statusLabel"), statusLabel(status));
+    map.insert(QStringLiteral("createdText"),
+               QLocale(QLocale::English).toString(order.getCreatedAt(), QStringLiteral("d MMM yyyy, HH:mm")));
+    map.insert(QStringLiteral("count"), units);
+    map.insert(QStringLiteral("lineCount"), items.size());
+    map.insert(QStringLiteral("images"), images);
+    map.insert(QStringLiteral("totalText"), formatEgp(order.getFinalPriceMinor()));
+    map.insert(QStringLiteral("canCancel"), Order::canTransition(status, QLatin1String(Order::STATUS_CANCELLED)));
+    map.insert(QStringLiteral("nextStatuses"), next);
+    return map;
+}
+
+QVariantList AppController::myOrders() const
+{
+    QVariantList result;
+    const std::optional<User> user = m_authentication.currentUser();
+    if (!user) {
+        return result;
+    }
+    QList<Order> orders = m_orderManager.getOrdersByCustomer(user->getId());
+    std::sort(orders.begin(), orders.end(), [](const Order& a, const Order& b) {
+        return a.getCreatedAt() > b.getCreatedAt();
+    });
+    for (const Order& order : orders) {
+        result.append(orderSummaryMap(order));
+    }
+    return result;
+}
+
+QVariantMap AppController::cancelMyOrder(const QString& orderId)
+{
+    QVariantMap result;
+    const std::optional<Order> order = m_orderManager.getOrderById(orderId);
+    if (!order || !ownsOrder(*order)) {
+        result.insert(QStringLiteral("ok"), false);
+        result.insert(QStringLiteral("message"), QStringLiteral("This order could not be found."));
+        return result;
+    }
+    // OrderManager::cancelOrder decides: only pending, confirmed or processing orders, and it returns the stock
+    const OrderResult status = m_orderManager.cancelOrder(orderId);
+    result.insert(QStringLiteral("ok"), status == OrderResult::Success);
+    result.insert(QStringLiteral("message"), status == OrderResult::Success
+                                                 ? QStringLiteral("Order #") + orderId + QStringLiteral(" has been cancelled.")
+                                                 : orderMessage(status));
+    if (status == OrderResult::Success) {
+        emit dataChanged();
+    }
+    return result;
+}
+
+QString AppController::orderMessage(OrderResult result)
+{
+    switch (result) {
+    case OrderResult::Success:
+        return QStringLiteral("The order has been updated.");
+    case OrderResult::InvalidOrder:
+        return QStringLiteral("This order is not valid.");
+    case OrderResult::DuplicateOrder:
+        return QStringLiteral("This order already exists.");
+    case OrderResult::NotFound:
+        return QStringLiteral("This order could not be found.");
+    case OrderResult::InvalidTransition:
+        return QStringLiteral("This order can no longer be changed to that status.");
+    case OrderResult::StorageError:
+        return QStringLiteral("We could not save the order. Please try again.");
+    }
+    return QStringLiteral("Something went wrong. Please try again.");
+}
+
+// ===================== Admin area =====================
+
+QString AppController::adminMessage(AdminResult result)
+{
+    switch (result) {
+    case AdminResult::Success:
+        return QStringLiteral("Saved.");
+    case AdminResult::NotAuthorized:
+        return QStringLiteral("Only an admin can do this. Please sign in as an admin.");
+    case AdminResult::InvalidData:
+        return QStringLiteral("Please check the product details (name, a price above 0, stock 0 or more, a date that has not passed).");
+    case AdminResult::InvalidCategory:
+        return QStringLiteral("Please choose one of the four categories.");
+    case AdminResult::DuplicateId:
+        return QStringLiteral("A product with this id already exists.");
+    case AdminResult::DuplicateCode:
+        return QStringLiteral("Another product already uses this code.");
+    case AdminResult::NotFound:
+        return QStringLiteral("This product could not be found.");
+    case AdminResult::StorageError:
+        return QStringLiteral("We could not save the change. Please try again.");
+    }
+    return QStringLiteral("Something went wrong. Please try again.");
+}
+
+QString AppController::stockMessage(StockResult result)
+{
+    switch (result) {
+    case StockResult::Success:
+        return QStringLiteral("Stock updated.");
+    case StockResult::InvalidQuantity:
+        return QStringLiteral("Please enter a whole number of at least 1.");
+    case StockResult::ProductNotFound:
+        return QStringLiteral("This product could not be found.");
+    case StockResult::InsufficientStock:
+        return QStringLiteral("There is not enough stock.");
+    case StockResult::Expired:
+        return QStringLiteral("This product has expired.");
+    case StockResult::StorageError:
+        return QStringLiteral("We could not save the stock. Please try again.");
+    }
+    return QStringLiteral("Something went wrong. Please try again.");
+}
+
+bool AppController::parseMoney(const QString& text, qint64* amountMinor)
+{
+    // "325", "325.5", "1,900.00" -> piastres, without going through double
+    QString value = text.trimmed();
+    value.remove(QLatin1Char(','));
+    if (value.endsWith(QStringLiteral("EGP"), Qt::CaseInsensitive)) {
+        value.chop(3);
+        value = value.trimmed();
+    }
+    if (value.isEmpty()) {
+        return false;
+    }
+    const int dot = value.indexOf(QLatin1Char('.'));
+    const QString whole = dot == -1 ? value : value.left(dot);
+    QString fraction = dot == -1 ? QString() : value.mid(dot + 1);
+    if (whole.isEmpty() || fraction.size() > 2) {
+        return false;
+    }
+    for (const QChar ch : whole + fraction) {
+        if (!ch.isDigit()) {
+            return false;
+        }
+    }
+    if (whole.size() > 12) {
+        return false;
+    }
+    while (fraction.size() < 2) {
+        fraction.append(QLatin1Char('0'));
+    }
+    *amountMinor = whole.toLongLong() * 100 + fraction.toLongLong();
+    return true;
+}
+
+QStringList AppController::productCategories() const
+{
+    return CategoryManager::getAllCategories();
+}
+
+QVariantMap AppController::adminProductRow(const Product& product) const
+{
+    QVariantMap row = productToMap(product);
+    row.insert(QStringLiteral("expiryIso"),
+               product.hasExpiryDate() ? product.getExpiryDate().toString(Qt::ISODate) : QString());
+    return row;
+}
+
+QVariantMap AppController::adminSummary(int lowStockThreshold) const
+{
+    QVariantMap result;
+    result.insert(QStringLiteral("ok"), isAdmin());
+    if (!isAdmin()) {
+        return result;
+    }
+    QList<Order> orders;
+    m_adminManager.getAllOrders(orders);
+    qint64 revenue = 0;
+    int open = 0;
+    int pending = 0;
+    for (const Order& order : orders) {
+        const QString status = order.getStatus();
+        if (status != QLatin1String(Order::STATUS_CANCELLED)) {
+            revenue += order.getFinalPriceMinor();
+        }
+        if (status == QLatin1String(Order::STATUS_PENDING)) {
+            ++pending;
+        }
+        if (!Order::nextStatusesFor(status).isEmpty()) {
+            ++open;
+        }
+    }
+    int customers = 0;
+    const QList<User> users = m_userRepository.getAllUsers();
+    for (const User& user : users) {
+        if (!user.isAdmin()) {
+            ++customers;
+        }
+    }
+    std::sort(orders.begin(), orders.end(), [](const Order& a, const Order& b) {
+        return a.getCreatedAt() > b.getCreatedAt();
+    });
+    QVariantList recent;
+    for (int i = 0; i < orders.size() && i < 5; ++i) {
+        recent.append(orderSummaryMap(orders.at(i)));
+    }
+    result.insert(QStringLiteral("productCount"), m_productRepository.getAllProducts().size());
+    result.insert(QStringLiteral("orderCount"), orders.size());
+    result.insert(QStringLiteral("openOrders"), open);
+    result.insert(QStringLiteral("pendingOrders"), pending);
+    result.insert(QStringLiteral("customerCount"), customers);
+    result.insert(QStringLiteral("revenueText"), formatEgp(revenue));
+    result.insert(QStringLiteral("lowStockCount"), m_inventoryManager.getLowStockProducts(lowStockThreshold).size());
+    result.insert(QStringLiteral("expiredCount"), m_inventoryManager.getExpiredProducts().size());
+    result.insert(QStringLiteral("recentOrders"), recent);
+    return result;
+}
+
+QVariantList AppController::adminProducts(const QString& search) const
+{
+    QVariantList result;
+    if (!isAdmin()) {
+        return result;
+    }
+    const QString term = search.trimmed();
+    const QList<Product> list = term.isEmpty() ? m_medicineManager.getAllMedicines()
+                                               : m_medicineManager.searchMedicines(term);
+    for (const Product& product : list) {
+        result.append(adminProductRow(product));
+    }
+    return result;
+}
+
+QString AppController::nextProductId() const
+{
+    // The backend has no id generator for products: next "P" number after the biggest one
+    int biggest = 0;
+    const QList<Product> list = m_productRepository.getAllProducts();
+    for (const Product& product : list) {
+        const QString id = product.getId();
+        if (id.startsWith(QLatin1Char('P'))) {
+            bool ok = false;
+            const int number = id.mid(1).toInt(&ok);
+            if (ok) {
+                biggest = std::max(biggest, number);
+            }
+        }
+    }
+    return QStringLiteral("P%1").arg(biggest + 1, 3, 10, QLatin1Char('0'));
+}
+
+QVariantMap AppController::adminProductForm(const QString& productId) const
+{
+    QVariantMap form;
+    const std::optional<Product> product = productId.isEmpty() ? std::nullopt
+                                                               : m_medicineManager.findMedicineById(productId);
+    form.insert(QStringLiteral("ok"), productId.isEmpty() || product.has_value());
+    form.insert(QStringLiteral("isNew"), !product.has_value());
+    if (!product) {
+        form.insert(QStringLiteral("id"), nextProductId());
+        form.insert(QStringLiteral("name"), QString());
+        form.insert(QStringLiteral("code"), QString());
+        form.insert(QStringLiteral("category"), QString());
+        form.insert(QStringLiteral("brand"), QString());
+        form.insert(QStringLiteral("description"), QString());
+        form.insert(QStringLiteral("price"), QString());
+        form.insert(QStringLiteral("stock"), QStringLiteral("0"));
+        form.insert(QStringLiteral("expiry"), QString());
+        form.insert(QStringLiteral("requiresPrescription"), false);
+        return form;
+    }
+    const qint64 price = product->getPriceMinor();
+    form.insert(QStringLiteral("id"), product->getId());
+    form.insert(QStringLiteral("name"), product->getName());
+    form.insert(QStringLiteral("code"), product->getCode());
+    form.insert(QStringLiteral("category"), product->getCategory());
+    form.insert(QStringLiteral("brand"), brandOf(*product));
+    form.insert(QStringLiteral("description"), descriptionOf(*product));
+    form.insert(QStringLiteral("price"), QStringLiteral("%1.%2").arg(price / 100).arg(price % 100, 2, 10, QLatin1Char('0')));
+    form.insert(QStringLiteral("stock"), QString::number(product->getStockQuantity()));
+    form.insert(QStringLiteral("expiry"), product->hasExpiryDate() ? product->getExpiryDate().toString(Qt::ISODate) : QString());
+    form.insert(QStringLiteral("requiresPrescription"), product->getRequiresPrescription());
+    return form;
+}
+
+QVariantMap AppController::saveProduct(const QVariantMap& form)
+{
+    QVariantMap result;
+    auto fail = [&result](const QString& message, const QString& field) {
+        result.insert(QStringLiteral("ok"), false);
+        result.insert(QStringLiteral("message"), message);
+        result.insert(QStringLiteral("field"), field);
+        return result;
+    };
+    if (!isAdmin()) {
+        return fail(adminMessage(AdminResult::NotAuthorized), QString());
+    }
+    const bool isNew = form.value(QStringLiteral("isNew")).toBool();
+    const QString id = form.value(QStringLiteral("id")).toString().trimmed();
+    const QString name = form.value(QStringLiteral("name")).toString().trimmed();
+    const QString code = form.value(QStringLiteral("code")).toString().trimmed();
+    const QString category = form.value(QStringLiteral("category")).toString();
+    const QString brand = form.value(QStringLiteral("brand")).toString().trimmed();
+    const QString description = form.value(QStringLiteral("description")).toString().trimmed();
+    const QString expiryText = form.value(QStringLiteral("expiry")).toString().trimmed();
+
+    // Form checks that need parsing (the rest is decided by AdminManager / MedicineManager)
+    if (!Validation::isNonEmptyText(name)) {
+        return fail(QStringLiteral("Please enter the product name."), QStringLiteral("name"));
+    }
+    qint64 priceMinor = 0;
+    if (!parseMoney(form.value(QStringLiteral("price")).toString(), &priceMinor) || !Validation::isPositivePrice(priceMinor)) {
+        return fail(QStringLiteral("Enter a price above 0, like 325 or 325.50."), QStringLiteral("price"));
+    }
+    bool stockOk = false;
+    const int stock = form.value(QStringLiteral("stock")).toString().trimmed().toInt(&stockOk);
+    if (!stockOk || stock < 0) {
+        return fail(QStringLiteral("Stock must be a whole number, 0 or more."), QStringLiteral("stock"));
+    }
+    QDate expiry;
+    if (!expiryText.isEmpty()) {
+        expiry = QDate::fromString(expiryText, Qt::ISODate);
+        if (!expiry.isValid()) {
+            return fail(QStringLiteral("Write the expiry date as YYYY-MM-DD, for example 2027-12-31."), QStringLiteral("expiry"));
+        }
+    }
+    if (!CategoryManager::isValidCategory(category)) {
+        return fail(adminMessage(AdminResult::InvalidCategory), QStringLiteral("category"));
+    }
+
+    // Keep the seed format "Brand - description" so the shop can show the brand
+    const QString fullDescription = brand.isEmpty() ? description : brand + QStringLiteral(" - ") + description;
+    QString imagePath;
+    if (!isNew) {
+        const std::optional<Product> existing = m_medicineManager.findMedicineById(id);
+        if (existing) {
+            imagePath = existing->getImagePath();
+        }
+    }
+    const Product product(id, name, code, CategoryManager::normalizeCategory(category), fullDescription,
+                          priceMinor, stock, imagePath, expiry,
+                          form.value(QStringLiteral("requiresPrescription")).toBool());
+    const AdminResult status = isNew ? m_adminManager.addProduct(product) : m_adminManager.updateProduct(product);
+    if (status != AdminResult::Success) {
+        QString field;
+        if (status == AdminResult::DuplicateCode) {
+            field = QStringLiteral("code");
+        } else if (status == AdminResult::InvalidCategory) {
+            field = QStringLiteral("category");
+        } else if (status == AdminResult::InvalidData && expiry.isValid() && expiry < QDate::currentDate()) {
+            return fail(QStringLiteral("The expiry date has already passed."), QStringLiteral("expiry"));
+        }
+        return fail(adminMessage(status), field);
+    }
+    result.insert(QStringLiteral("ok"), true);
+    result.insert(QStringLiteral("message"), (isNew ? QStringLiteral("Product added: ") : QStringLiteral("Product saved: ")) + name);
+    result.insert(QStringLiteral("field"), QString());
+    result.insert(QStringLiteral("id"), id);
+    emit dataChanged();
+    return result;
+}
+
+QVariantMap AppController::removeProduct(const QString& productId)
+{
+    QVariantMap result;
+    const QString name = productName(productId);
+    const AdminResult status = m_adminManager.removeProduct(productId);
+    result.insert(QStringLiteral("ok"), status == AdminResult::Success);
+    result.insert(QStringLiteral("message"), status == AdminResult::Success
+                                                 ? QStringLiteral("Product removed: ") + name
+                                                 : adminMessage(status));
+    if (status == AdminResult::Success) {
+        emit dataChanged();
+    }
+    return result;
+}
+
+QVariantList AppController::adminOrders(const QString& status) const
+{
+    QVariantList result;
+    QList<Order> orders;
+    if (m_adminManager.getAllOrders(orders) != AdminResult::Success) {
+        return result;
+    }
+    std::sort(orders.begin(), orders.end(), [](const Order& a, const Order& b) {
+        return a.getCreatedAt() > b.getCreatedAt();
+    });
+    for (const Order& order : orders) {
+        if (status.isEmpty() || order.getStatus() == status) {
+            result.append(orderSummaryMap(order));
+        }
+    }
+    return result;
+}
+
+QVariantMap AppController::updateOrderStatus(const QString& orderId, const QString& newStatus)
+{
+    QVariantMap result;
+    QString message;
+    bool ok = false;
+    Order order;
+    if (!isAdmin()) {
+        message = adminMessage(AdminResult::NotAuthorized);
+    } else if (m_adminManager.getOrderById(orderId, order) != AdminResult::Success) {
+        message = orderMessage(OrderResult::NotFound);
+    } else if (!Order::canTransition(order.getStatus(), newStatus)) {
+        // Only the transitions the Order model allows are offered and accepted
+        message = orderMessage(OrderResult::InvalidTransition);
+    } else {
+        const OrderResult status = m_orderManager.updateOrderStatus(orderId, newStatus);
+        ok = status == OrderResult::Success;
+        message = ok ? QStringLiteral("Order #") + orderId + QStringLiteral(" is now ") + statusLabel(newStatus).toLower() + QLatin1Char('.')
+                     : orderMessage(status);
+    }
+    result.insert(QStringLiteral("ok"), ok);
+    result.insert(QStringLiteral("message"), message);
+    if (ok) {
+        emit dataChanged();
+    }
+    return result;
+}
+
+QVariantList AppController::lowStockProducts(int threshold) const
+{
+    QVariantList result;
+    if (!isAdmin()) {
+        return result;
+    }
+    QList<Product> list = m_inventoryManager.getLowStockProducts(threshold);
+    std::sort(list.begin(), list.end(), [](const Product& a, const Product& b) {
+        return a.getStockQuantity() < b.getStockQuantity();
+    });
+    for (const Product& product : list) {
+        result.append(adminProductRow(product));
+    }
+    return result;
+}
+
+QVariantList AppController::expiredProducts() const
+{
+    QVariantList result;
+    if (!isAdmin()) {
+        return result;
+    }
+    const QList<Product> list = m_inventoryManager.getExpiredProducts();
+    for (const Product& product : list) {
+        result.append(adminProductRow(product));
+    }
+    return result;
+}
+
+QVariantMap AppController::increaseStock(const QString& productId, const QString& quantityText)
+{
+    QVariantMap result;
+    if (!isAdmin()) {
+        result.insert(QStringLiteral("ok"), false);
+        result.insert(QStringLiteral("message"), adminMessage(AdminResult::NotAuthorized));
+        return result;
+    }
+    bool parsed = false;
+    const int quantity = quantityText.trimmed().toInt(&parsed);
+    const StockResult status = parsed ? m_inventoryManager.increaseStock(productId, quantity) : StockResult::InvalidQuantity;
+    result.insert(QStringLiteral("ok"), status == StockResult::Success);
+    if (status == StockResult::Success) {
+        const std::optional<int> stock = m_inventoryManager.getStock(productId);
+        result.insert(QStringLiteral("message"), productName(productId) + QStringLiteral(": stock is now ")
+                                                     + QString::number(stock.value_or(0)) + QLatin1Char('.'));
+        emit dataChanged();
+    } else {
+        result.insert(QStringLiteral("message"), stockMessage(status));
+    }
+    return result;
+}
+
 
 }

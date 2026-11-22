@@ -1598,11 +1598,20 @@ QtObject {
                             }
                         }
                     }
-                    Controls.PcButton {
+                    Row {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        variant: "secondary"
-                        text: "Continue Shopping"
-                        onClicked: App.go("home")
+                        spacing: 12
+                        // Design "Track Order": opens this order in My orders (live status from the backend)
+                        Controls.PcButton {
+                            text: "Track Order"
+                            iconName: "arrowR"
+                            onClicked: App.go("orderDetails", { orderId: confirmation.orderData.orderId })
+                        }
+                        Controls.PcButton {
+                            variant: "secondary"
+                            text: "Continue Shopping"
+                            onClicked: App.go("home")
+                        }
                     }
                 }
             }
@@ -1634,7 +1643,7 @@ QtObject {
                                 width: parent.width - 64
                                 spacing: 24
                                 Controls.PText {
-                                    ts: Theme.h4
+                                    ts: Theme.h3
                                     text: "Order status"
                                 }
                                 Controls.StatusTracker {

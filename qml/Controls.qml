@@ -400,6 +400,19 @@ QtObject {
         implicitWidth: buttonRow.implicitWidth + 2 * horizontalPadding
         implicitHeight: 52
 
+        // Keyboard: Tab reaches the button (focus ring), Enter / Space press it
+        activeFocusOnTab: enabled && visible
+        Keys.onReturnPressed: if (enabled) button.clicked()
+        Keys.onEnterPressed: if (enabled) button.clicked()
+        Keys.onSpacePressed: if (enabled) button.clicked()
+
+        Rectangle {
+            visible: button.activeFocus
+            anchors.fill: parent
+            anchors.margins: -Theme.focusRingWidth
+            radius: height / 2
+            color: Theme.focusRing
+        }
         ShadowRect {
             anchors.fill: parent
             radius: height / 2
@@ -1113,6 +1126,7 @@ QtObject {
                         iconSize: 16
                         iconFirst: true
                         text: "Add"
+                        visible: !App.isAdmin      // admins do not shop
                         enabled: card.product.inStock === true
                         onClicked: {
                             const result = App.addToCart(card.product.id, 1)
@@ -1552,6 +1566,8 @@ QtObject {
                 topPadding: 0
                 bottomPadding: 0
                 verticalAlignment: TextInput.AlignVCenter
+                // Explicit: digit-only text ("1900.00", "30") would otherwise be laid out right-aligned
+                horizontalAlignment: TextInput.AlignLeft
                 font.family: Theme.body.family
                 font.pixelSize: Theme.body.size
                 font.weight: Theme.body.weight
@@ -1592,18 +1608,19 @@ QtObject {
     component ErrorBanner: Rectangle {
         id: errorBanner
         property string text: ""
+        property bool success: false       // same banner in the success colours ("Your details have been saved.")
         height: Math.max(46, bannerText.height + 28)
         radius: Theme.rMenu
-        color: Theme.errorBg
+        color: success ? Theme.successBg : Theme.errorBg
         border.width: Theme.borderThin
-        border.color: Theme.alpha(Theme.error, 0.4)
+        border.color: Theme.alpha(success ? Theme.success : Theme.error, 0.4)
         Icon {
             id: bannerIcon
             x: 18
             anchors.verticalCenter: parent.verticalCenter
-            name: "info"
+            name: errorBanner.success ? "check" : "info"
             size: 18
-            color: Theme.error
+            color: errorBanner.success ? Theme.success : Theme.error
         }
         PText {
             id: bannerText
@@ -1613,7 +1630,7 @@ QtObject {
             anchors.rightMargin: 18
             anchors.verticalCenter: parent.verticalCenter
             ts: Theme.link
-            color: Theme.error
+            color: errorBanner.success ? Theme.success : Theme.error
             wrapMode: Text.WordWrap
             text: errorBanner.text
         }
@@ -1851,82 +1868,467 @@ QtObject {
     }
 
     // Order status tracker: placed -> pharmacist check -> packed & dispatched -> delivered
-    component StatusTracker: Column {
+    component StatusTracker: Item {
         id: tracker
         property string status: "pending"
         property string placedText: ""
-        // Backend statuses mapped onto the 4 design steps (cancelled shows no progress)
-        readonly property int reached: status === "cancelled" ? -1
-                                     : status === "delivered" ? 3
-                                     : status === "shipped" || status === "processing" ? 2
-                                     : status === "confirmed" ? 1 : 0
+        // Backend statuses on the 4 design steps (horizontal tracker, as in the Order Confirmation board):
+        // pending -> pharmacist check in progress; confirmed / processing -> packing; shipped -> on the way; delivered -> all done
+        readonly property bool cancelled: status === "cancelled"
+        readonly property int done: status === "delivered" ? 4
+                                  : status === "shipped" ? 3
+                                  : status === "confirmed" || status === "processing" ? 2 : 1
+        readonly property int current: cancelled || status === "delivered" ? -1 : done
+        readonly property string currentText: status === "confirmed" ? "Up next"
+                                            : status === "shipped" ? "On the way" : "In progress"
         readonly property var stepsModel: {
             const labels = ["Order placed", "Pharmacist check", "Packed & dispatched", "Delivered"]
-            const icons = ["bag", "rx", "truck", "home"]
+            const icons = ["bag", "shield", "bag", "home"]   // as in the Order Confirmation board
             const list = []
             for (let i = 0; i < 4; ++i) {
-                const finished = i < reached || (i === 3 && reached === 3)
-                const current = i === reached && i < 3
+                const finished = i < done
+                const isCurrent = i === current
                 list.push({
+                    index: i,
                     label: labels[i],
                     icon: finished ? "check" : icons[i],
                     finished: finished,
-                    current: current,
-                    detail: i === 0 ? placedText : (current ? "In progress" : ""),
-                    lineDone: i < reached,
+                    current: isCurrent,
+                    detail: i === 0 ? placedText : isCurrent ? currentText : (finished ? "Done" : ""),
+                    // the connector after this step is blue when it leads to a finished or the current step
+                    lineDone: i < done && (i + 1 < done || i + 1 === current),
                     last: i === 3
                 })
             }
             return list
         }
-        spacing: 0
+        implicitHeight: stepsRow.height + (cancelled ? cancelNote.height + 20 : 0)
 
-        Repeater {
-            model: tracker.stepsModel
-            delegate: Item {
-                id: trackStep
-                required property var modelData
-                width: parent ? parent.width : 0
-                height: modelData.last ? 44 : 64
-                Rectangle {
-                    visible: !trackStep.modelData.last
-                    x: 15
-                    y: 32
-                    width: 2
-                    height: parent.height - 32
-                    color: trackStep.modelData.lineDone ? Theme.royal600 : Theme.borderControl
-                }
-                Rectangle {
-                    width: 32
-                    height: 32
-                    radius: height / 2
-                    color: trackStep.modelData.finished ? Theme.royal600 : trackStep.modelData.current ? Theme.midnight900 : Theme.white
-                    border.width: trackStep.modelData.finished || trackStep.modelData.current ? 0 : Theme.borderThin
-                    border.color: Theme.borderControl
-                    Icon {
-                        anchors.centerIn: parent
-                        name: trackStep.modelData.icon
-                        size: 16
-                        color: trackStep.modelData.finished || trackStep.modelData.current ? Theme.white : Theme.textMuted
+        Row {
+            id: stepsRow
+            width: parent.width
+            Repeater {
+                model: tracker.stepsModel
+                delegate: Item {
+                    id: trackStep
+                    required property var modelData
+                    width: parent ? parent.width / 4 : 0
+                    height: 100
+                    // connector to the next step, through the dot centres
+                    Rectangle {
+                        visible: !trackStep.modelData.last
+                        x: 44 + 8
+                        y: 21
+                        width: trackStep.width - 44 - 16
+                        height: 2
+                        radius: 1
+                        color: trackStep.modelData.lineDone ? Theme.royal600 : Theme.borderControl
                     }
-                }
-                Column {
-                    x: 48
-                    spacing: 2
-                    PText {
-                        ts: trackStep.modelData.finished || trackStep.modelData.current ? Theme.linkBold : Theme.small13
-                        color: trackStep.modelData.finished || trackStep.modelData.current ? Theme.textPrimary : Theme.textMuted
-                        text: trackStep.modelData.label
+                    // focus halo around the current step
+                    Rectangle {
+                        visible: trackStep.modelData.current
+                        x: -Theme.focusRingWidth
+                        y: -Theme.focusRingWidth
+                        width: 44 + 2 * Theme.focusRingWidth
+                        height: width
+                        radius: width / 2
+                        color: Theme.focusRing
                     }
-                    PText {
-                        visible: text !== ""
-                        ts: Theme.meta12
-                        color: trackStep.modelData.current ? Theme.royal600 : Theme.textSecondary
-                        text: trackStep.modelData.detail
+                    Rectangle {
+                        width: 44
+                        height: 44
+                        radius: height / 2
+                        color: trackStep.modelData.finished ? Theme.royal600
+                             : trackStep.modelData.current ? Theme.midnight900 : Theme.surfaceTint
+                        border.width: trackStep.modelData.finished || trackStep.modelData.current ? 0 : Theme.borderThin
+                        border.color: Theme.sky200
+                        Icon {
+                            anchors.centerIn: parent
+                            name: trackStep.modelData.icon
+                            size: 18
+                            color: trackStep.modelData.finished || trackStep.modelData.current ? Theme.white : Theme.textMuted
+                        }
+                    }
+                    Column {
+                        y: 56
+                        width: parent.width - 12
+                        spacing: 4
+                        PText {
+                            width: parent.width
+                            ts: Theme.cardLine
+                            color: trackStep.modelData.finished || trackStep.modelData.current ? Theme.textPrimary : Theme.textMuted
+                            elide: Text.ElideRight
+                            text: trackStep.modelData.label
+                        }
+                        PText {
+                            visible: text !== ""
+                            ts: trackStep.modelData.current ? Theme.chip : Theme.meta12
+                            color: trackStep.modelData.current ? Theme.royal600 : Theme.textSecondary
+                            text: trackStep.modelData.detail
+                        }
                     }
                 }
             }
         }
+        // Cancelled orders keep "Order placed" and say so underneath
+        Rectangle {
+            id: cancelNote
+            visible: tracker.cancelled
+            y: stepsRow.height + 20
+            width: parent.width
+            height: 48
+            radius: Theme.rOption
+            color: Theme.errorBg
+            Row {
+                x: 16
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 10
+                Icon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: "x"
+                    size: 16
+                    color: Theme.error
+                }
+                PText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    ts: Theme.link
+                    color: Theme.error
+                    text: "This order was cancelled. The items went back into stock."
+                }
+            }
+        }
+    }
+
+    // Order status chip for lists (pending, confirmed, processing, shipped, delivered, cancelled)
+    component StatusChip: Rectangle {
+        id: statusChip
+        property string status: "pending"
+        property string text: ""
+        readonly property color tone: status === "cancelled" ? Theme.error
+                                    : status === "delivered" ? Theme.success
+                                    : status === "pending" ? Theme.textSecondary : Theme.royal600
+        width: chipLabel.implicitWidth + 24
+        height: 26
+        radius: height / 2
+        color: status === "cancelled" ? Theme.errorBg
+             : status === "delivered" ? Theme.successBg
+             : status === "pending" ? Theme.midnight100 : Theme.sky100
+        PText {
+            id: chipLabel
+            anchors.centerIn: parent
+            ts: Theme.chip
+            color: statusChip.tone
+            text: statusChip.text
+        }
+    }
+
+    // ===================== Account / admin building blocks (not in the Penpot file; built from the tokens) =====================
+    // Page head: breadcrumb, Fraunces title and a subtitle (same rhythm as the Cart head)
+    component PageHead: Column {
+        id: pageHead
+        property var crumbs: [{ label: "Home", page: "home", params: {} }]
+        property string current: ""
+        property string title: ""
+        property string subtitle: ""
+        width: Theme.contentWidth
+        spacing: 16
+        Breadcrumb {
+            crumbs: pageHead.crumbs
+            current: pageHead.current
+        }
+        PText {
+            ts: Theme.pageTitle
+            text: pageHead.title
+        }
+        PText {
+            visible: text !== ""
+            width: parent.width
+            ts: Theme.bodyL
+            color: Theme.textSecondary
+            wrapMode: Text.WordWrap
+            text: pageHead.subtitle
+        }
+    }
+
+    // Side navigation row (icon + label); selected = Sky 50 fill and Royal text, like a selected menu option
+    component NavItem: Rectangle {
+        id: navItem
+        property string text: ""
+        property string iconName: "user"
+        property bool selected: false
+        property bool danger: false
+        signal clicked()
+        width: 248
+        height: 48
+        radius: Theme.rInput
+        color: selected ? Theme.sky100 : navHover.hovered ? Theme.sky50 : "transparent"
+        border.width: activeFocus ? Theme.borderFocus : 0
+        border.color: Theme.royal600
+        activeFocusOnTab: true
+        Keys.onReturnPressed: navItem.clicked()
+        Keys.onSpacePressed: navItem.clicked()
+        Behavior on color { ColorAnimation { duration: Theme.hoverDuration } }
+        Row {
+            x: 14
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 12
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                name: navItem.iconName
+                size: 18
+                color: navItem.danger ? Theme.error : navItem.selected ? Theme.royal600 : Theme.textSecondary
+            }
+            PText {
+                anchors.verticalCenter: parent.verticalCenter
+                ts: navItem.selected ? Theme.labelStrong : Theme.label
+                color: navItem.danger ? Theme.error : navItem.selected ? Theme.royal700 : Theme.textPrimary
+                text: navItem.text
+            }
+        }
+        HoverHandler {
+            id: navHover
+            cursorShape: Qt.PointingHandCursor
+        }
+        MouseArea {
+            anchors.fill: parent
+            onClicked: navItem.clicked()
+        }
+    }
+
+    // White card with the hairline border (account / admin panels)
+    component Panel: Rectangle {
+        radius: Theme.rModal
+        color: Theme.white
+        border.width: Theme.borderThin
+        border.color: Theme.borderHairline
+    }
+
+    // Dashboard number tile
+    component StatCard: Rectangle {
+        id: statCard
+        property string iconName: "bag"
+        property string label: ""
+        property string value: ""
+        property string note: ""
+        property bool warning: false
+        signal clicked()
+        height: 132
+        radius: Theme.rPanel
+        color: statHover.hovered ? Theme.sky50 : Theme.white
+        border.width: Theme.borderThin
+        border.color: statHover.hovered ? Theme.sky200 : Theme.borderHairline
+        Behavior on color { ColorAnimation { duration: Theme.hoverDuration } }
+        Rectangle {
+            x: 20
+            y: 20
+            width: 40
+            height: 40
+            radius: Theme.rInput
+            color: statCard.warning ? Theme.errorBg : Theme.surfaceTint
+            Icon {
+                anchors.centerIn: parent
+                name: statCard.iconName
+                size: 20
+                color: statCard.warning ? Theme.error : Theme.royal600
+            }
+        }
+        Column {
+            x: 20
+            y: 72
+            width: parent.width - 40
+            spacing: 2
+            PText {
+                width: parent.width
+                ts: Theme.totalPrice
+                elide: Text.ElideRight
+                text: statCard.value
+            }
+            PText {
+                width: parent.width
+                ts: Theme.small13
+                color: Theme.textSecondary
+                elide: Text.ElideRight
+                text: statCard.label + (statCard.note !== "" ? " · " + statCard.note : "")
+            }
+        }
+        HoverHandler {
+            id: statHover
+            cursorShape: Qt.PointingHandCursor
+        }
+        MouseArea {
+            anchors.fill: parent
+            onClicked: statCard.clicked()
+        }
+    }
+
+    // Dropdown form field: label + trigger (Form Input look) + menu of options (Sort Menu look)
+    component SelectField: Column {
+        id: selectField
+        property string label: ""
+        property string value: ""
+        property string placeholder: "Choose…"
+        property var options: []
+        property string status: ""
+        property string helper: ""
+        signal picked(string value)
+        function choose(option: string) {
+            selectMenu.close()
+            picked(option)
+        }
+        width: 360
+        spacing: 8
+        PText {
+            visible: selectField.label !== ""
+            ts: Theme.link
+            color: Theme.textLabel
+            text: selectField.label
+        }
+        Rectangle {
+            id: selectTrigger
+            width: parent.width
+            height: 52
+            radius: Theme.rInput
+            color: Theme.white
+            border.width: selectMenu.opened || selectTrigger.activeFocus ? Theme.borderFocus : Theme.borderThin
+            border.color: selectField.status === "error" ? Theme.error
+                        : selectMenu.opened || selectTrigger.activeFocus ? Theme.royal600 : Theme.borderControl
+            activeFocusOnTab: true
+            Keys.onReturnPressed: selectMenu.open()
+            Keys.onSpacePressed: selectMenu.open()
+            PText {
+                x: 16
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width - 56
+                ts: Theme.body
+                elide: Text.ElideRight
+                color: selectField.value === "" ? Theme.textMuted : Theme.textPrimary
+                text: selectField.value === "" ? selectField.placeholder : selectField.value
+            }
+            Icon {
+                anchors.right: parent.right
+                anchors.rightMargin: 16
+                anchors.verticalCenter: parent.verticalCenter
+                name: selectMenu.opened ? "chevU" : "chevD"
+                size: 18
+                color: Theme.textSecondary
+            }
+            HoverHandler {
+                cursorShape: Qt.PointingHandCursor
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: selectMenu.opened ? selectMenu.close() : selectMenu.open()
+            }
+            Basic.Popup {
+                id: selectMenu
+                y: selectTrigger.height + 6
+                width: selectTrigger.width
+                padding: 8
+                closePolicy: Basic.Popup.CloseOnEscape | Basic.Popup.CloseOnPressOutsideParent
+                background: ShadowRect {
+                    radius: Theme.rMenu
+                    color: Theme.white
+                    border.width: Theme.borderThin
+                    border.color: Theme.borderHairline
+                    elevation: "md"
+                }
+                contentItem: Column {
+                    width: selectTrigger.width - 16
+                    spacing: 2
+                    Repeater {
+                        // each option carries its field ("owner"), so the delegate needs no outer ids
+                        model: selectField.options.map((option) => ({ text: option, owner: selectField }))
+                        delegate: MenuOption {
+                            required property var modelData
+                            width: parent ? parent.width : 0
+                            text: modelData.text
+                            selected: modelData.text === modelData.owner.value
+                            onClicked: modelData.owner.choose(modelData.text)
+                        }
+                    }
+                }
+            }
+        }
+        PText {
+            visible: selectField.helper !== ""
+            ts: Theme.caption
+            color: selectField.status === "error" ? Theme.error : Theme.textSecondary
+            text: selectField.helper
+        }
+    }
+
+    // Confirmation before a destructive action (remove product, cancel order); built on the Modal frame
+    component ConfirmDialog: Basic.Popup {
+        id: confirmDialog
+        property string title: ""
+        property string message: ""
+        property string confirmText: "Confirm"
+        property string cancelText: "Keep it"
+        signal confirmed()
+        parent: Basic.Overlay.overlay
+        anchors.centerIn: parent
+        width: 520
+        padding: 0
+        modal: true
+        focus: true
+        closePolicy: Basic.Popup.CloseOnEscape | Basic.Popup.CloseOnPressOutside
+        Basic.Overlay.modal: Rectangle {
+            color: Theme.alpha(Theme.midnight900, 0.45)
+        }
+        background: ModalFrame {}
+        contentItem: Column {
+            padding: 36
+            spacing: 20
+            Rectangle {
+                width: 52
+                height: 52
+                radius: Theme.rMenu
+                color: Theme.errorBg
+                Icon {
+                    anchors.centerIn: parent
+                    name: "info"
+                    size: 22
+                    color: Theme.error
+                }
+            }
+            PText {
+                width: 520 - 72
+                ts: Theme.cardTitle
+                wrapMode: Text.WordWrap
+                text: confirmDialog.title
+            }
+            PText {
+                width: 520 - 72
+                ts: Theme.body
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+                text: confirmDialog.message
+            }
+            Row {
+                spacing: 12
+                PcButton {
+                    variant: "secondary"
+                    text: confirmDialog.cancelText
+                    onClicked: confirmDialog.close()
+                }
+                PcButton {
+                    id: confirmButton
+                    text: confirmDialog.confirmText
+                    onClicked: {
+                        confirmDialog.close()
+                        confirmDialog.confirmed()
+                    }
+                }
+            }
+        }
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.overlayDuration }
+            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.overlayDuration; easing.type: Easing.OutCubic }
+        }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.overlayDuration }
+        }
+        onOpened: confirmButton.forceActiveFocus()
     }
 
     // ===================== Header =====================
@@ -2132,6 +2534,36 @@ QtObject {
                             contentItem: Column {
                                 spacing: 2
                                 MenuOption {
+                                    visible: App.isAdmin
+                                    width: parent.width
+                                    text: "Admin dashboard"
+                                    onClicked: {
+                                        accountMenu.close()
+                                        App.go("admin")
+                                    }
+                                }
+                                MenuOption {
+                                    width: parent.width
+                                    text: "My account"
+                                    onClicked: {
+                                        accountMenu.close()
+                                        App.go("account", { tab: "profile" })
+                                    }
+                                }
+                                MenuOption {
+                                    visible: !App.isAdmin
+                                    width: parent.width
+                                    text: "My orders"
+                                    onClicked: {
+                                        accountMenu.close()
+                                        App.go("account", { tab: "orders" })
+                                    }
+                                }
+                                Divider {
+                                    width: parent.width
+                                }
+                                MenuOption {
+                                    width: parent.width
                                     text: "Sign out"
                                     onClicked: {
                                         accountMenu.close()
@@ -2141,8 +2573,45 @@ QtObject {
                             }
                         }
                     }
+                    // Admin pill: admins do not shop, so the cart is replaced by a link to the admin area
+                    Rectangle {
+                        visible: App.isAdmin
+                        width: adminRow.implicitWidth + 32
+                        height: 48
+                        radius: height / 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: adminHover.hovered || App.currentPage === "admin" ? Theme.royal600 : Theme.midnight900
+                        Behavior on color { ColorAnimation { duration: Theme.hoverDuration } }
+                        Row {
+                            id: adminRow
+                            x: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 10
+                            Icon {
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: "grid"
+                                size: 18
+                                color: Theme.white
+                            }
+                            PText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                ts: Theme.link
+                                color: Theme.white
+                                text: "Admin"
+                            }
+                        }
+                        HoverHandler {
+                            id: adminHover
+                            cursorShape: Qt.PointingHandCursor
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: App.go("admin")
+                        }
+                    }
                     // Cart pill
                     Rectangle {
+                        visible: !App.isAdmin
                         width: cartRow.implicitWidth + 32
                         height: 48
                         radius: height / 2
