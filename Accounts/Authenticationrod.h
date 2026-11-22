@@ -1,3 +1,5 @@
+// El file da mas2ool 3an el login wel logout, we hashing el passwords, we me3rafet meen el user el 3amel login.
+// Owner: Rodina
 #pragma once
 
 #include <QString>

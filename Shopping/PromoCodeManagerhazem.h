@@ -1,3 +1,5 @@
+// El file da mas2ool 3an el promo codes: check en el code mawgood w active w msh expired, we 7esab el discount.
+// Owner: Hazem
 #pragma once
 
 #include <QList>

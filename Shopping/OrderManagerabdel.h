@@ -1,4 +1,5 @@
-// El file da mas2ool 3an edaret el orders: create, get, change status, cancel.   // Owner: Abdelrahman
+// El file da mas2ool 3an edaret el orders: create, get, change status, cancel.
+// Owner: Abdelrahman
 #pragma once
 
 #include <QList>

@@ -1,3 +1,5 @@
+// El file da mas2ool 3an sala7eyat el admin: add w update w delete lel products, we 3ard el orders.
+// Owner: Fayad
 #include "Accounts/AdminManagerfay.h"
 
 #include <optional>

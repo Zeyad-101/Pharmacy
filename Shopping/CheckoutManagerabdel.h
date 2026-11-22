@@ -1,4 +1,5 @@
-// El file da mas2ool 3an el checkout: check el customer wel address wel stock wel prices, we create el order.   // Owner: Abdelrahman
+// El file da mas2ool 3an el checkout: check el customer wel address wel stock wel prices, we create el order.
+// Owner: Abdelrahman
 #pragma once
 
 #include <QList>

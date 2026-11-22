@@ -1,3 +1,5 @@
+// El file da mas2ool 3an el check 3ala el input: el email wel phone wel password wel se3r wel kameya wel id.
+// Owner: Fayad
 #pragma once
 
 #include <QString>

@@ -1,3 +1,5 @@
+// El file da mas2ool 3an 7efz w esterga3 bayanat el promo codes men file promo_codes.json.
+// Owner: Hazem
 #pragma once
 
 #include <QList>

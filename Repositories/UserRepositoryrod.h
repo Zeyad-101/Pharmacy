@@ -1,3 +1,5 @@
+// El file da mas2ool 3an 7efz w esterga3 bayanat el users men file users.json.
+// Owner: Rodina
 #pragma once
 
 #include <QList>
