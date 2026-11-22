@@ -1171,6 +1171,21 @@ QtObject {
                                 }
                             }
                         }
+                        // Buy Now: Royal Glow gradient + glow (adds the quantity, then checkout)
+                        Controls.PcButton {
+                            width: 576
+                            gradient: true
+                            text: "Buy Now"
+                            iconName: "arrowR"
+                            enabled: page.found && page.product.inStock === true
+                            onClicked: {
+                                const result = App.addToCart(page.productId, page.quantity)
+                                if (result.ok)
+                                    App.goToCheckout()
+                                else
+                                    App.showToast("error", "Could not add to bag", result.message)
+                            }
+                        }
                     }
                 }
             }

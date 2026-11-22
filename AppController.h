@@ -42,6 +42,7 @@ class AppController : public QObject
     Q_PROPERTY(QString currentUserName READ currentUserName NOTIFY sessionChanged)
     Q_PROPERTY(int cartCount READ cartCount NOTIFY cartChanged)
     Q_PROPERTY(QString cartSubtotalText READ cartSubtotalText NOTIFY cartChanged)
+    Q_PROPERTY(QString promoCode READ promoCode NOTIFY cartChanged)
     Q_PROPERTY(QString currentPage READ currentPage NOTIFY pageChanged)
     Q_PROPERTY(QVariantMap pageParams READ pageParams NOTIFY pageChanged)
 
@@ -70,6 +71,7 @@ public:
     QString currentUserName() const;
     int cartCount() const;
     QString cartSubtotalText() const;
+    QString promoCode() const;
     QString currentPage() const;
     QVariantMap pageParams() const;
 
@@ -98,6 +100,27 @@ public:
     // Cart
     Q_INVOKABLE QVariantMap addToCart(const QString& productId, int quantity);
     Q_INVOKABLE QVariantMap cartItems() const;
+    Q_INVOKABLE QVariantMap changeCartQuantity(const QString& productId, int quantity);
+    Q_INVOKABLE QVariantMap removeFromCart(const QString& productId);
+    Q_INVOKABLE QVariantMap applyPromo(const QString& code);
+    Q_INVOKABLE void clearPromo();
+    Q_INVOKABLE QVariantMap cartTotals() const;
+    Q_INVOKABLE bool cartNeedsPrescription() const;
+    Q_INVOKABLE QStringList prescriptionProductNames() const;
+
+    // Accounts
+    Q_INVOKABLE QVariantMap login(const QString& emailOrUsername, const QString& password);
+    Q_INVOKABLE void logout();
+    Q_INVOKABLE QVariantMap registerCustomer(const QVariantMap& form);
+    Q_INVOKABLE QVariantMap currentUserProfile() const;
+    Q_INVOKABLE bool isValidField(const QString& kind, const QString& value) const;
+
+    // Checkout and orders
+    Q_INVOKABLE void goToCheckout();
+    Q_INVOKABLE QVariantMap checkAddress(const QVariantMap& address) const;
+    Q_INVOKABLE QVariantMap placeOrder(const QVariantMap& address, bool saveAddress,
+                                       bool prescriptionConfirmed, bool acceptPriceChanges);
+    Q_INVOKABLE QVariantMap order(const QString& orderId) const;
 
     // Icons: the SVG with its colour replaced, as a data URL
     Q_INVOKABLE QString iconSource(const QString& name, const QColor& color);
@@ -118,6 +141,12 @@ private:
     static QString descriptionOf(const Product& product);
     static QString imageUrlFor(const QString& imagePath);
     static QString cartMessage(CartResult result);
+    static QString promoMessage(PromoResult result, int percentage);
+    static QString userMessage(UserResult result);
+    static Address addressFrom(const QVariantMap& map);
+    static QVariantMap addressToMap(const Address& address);
+    static QString statusLabel(const QString& status);
+    QString productName(const QString& productId) const;
 
     QString m_dataDir;
 
@@ -140,6 +169,7 @@ private:
     QVariantMap m_pageParams;
     QList<QPair<QString, QVariantMap>> m_history;
     QStringList m_recentlyViewed;
+    QString m_promoCode;
     QHash<QString, QString> m_iconCache;
 
     static AppController* s_instance;

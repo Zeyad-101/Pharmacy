@@ -15,6 +15,8 @@ Basic.ApplicationWindow {
     color: Theme.white
 
     property bool overlayShot: false
+    // The checkout uses the reduced header and footer from the design
+    readonly property bool checkoutMode: App.currentPage === "checkout"
 
     // ---------- Navigation helpers ----------
     function closeOverlays() {
@@ -44,10 +46,20 @@ Basic.ApplicationWindow {
     }
 
     // ---------- Header (sticky) ----------
-    Controls.HeaderDesktop {
-        id: header
+    Item {
+        id: topBar
         objectName: "shotHeader"
         z: 2
+        width: parent.width
+        height: window.checkoutMode ? checkoutHeader.height : header.height
+        Controls.CheckoutHeader {
+            id: checkoutHeader
+            visible: window.checkoutMode
+            width: parent.width
+        }
+    Controls.HeaderDesktop {
+        id: header
+        visible: !window.checkoutMode
         width: parent.width
         onSearchEdited: (value) => {
             if (value.trim() === "")
@@ -66,12 +78,19 @@ Basic.ApplicationWindow {
             drawer.refresh()
             drawerPopup.open()
         }
+        onSignOutRequested: {
+            App.logout()
+            App.showToast("info", "Signed out", "See you soon.")
+            if (App.currentPage === "checkout")
+                App.go("home")
+        }
+    }
     }
 
     // ---------- Page + footer (scrolls under the header) ----------
     Flickable {
         id: flick
-        anchors.top: header.bottom
+        anchors.top: topBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -83,19 +102,35 @@ Basic.ApplicationWindow {
             policy: Basic.ScrollBar.AsNeeded
         }
 
-        Column {
-            id: pageColumn
+        // Opaque page background, so translucent shadows are grabbed correctly by --shot
+        Rectangle {
             objectName: "shotPage"
             width: flick.width
-            Loader {
-                id: pageLoader
+            height: pageColumn.height
+            color: Theme.white
+            Column {
+                id: pageColumn
                 width: parent.width
-                sourceComponent: App.currentPage === "shop" ? shopPage
-                               : App.currentPage === "product" ? productPage
-                               : homePage
-            }
-            Controls.FooterDesktop {
-                width: parent.width
+                Loader {
+                    id: pageLoader
+                    width: parent.width
+                    sourceComponent: App.currentPage === "shop" ? shopPage
+                                   : App.currentPage === "product" ? productPage
+                                   : App.currentPage === "cart" ? cartPage
+                                   : App.currentPage === "checkout" ? checkoutPage
+                                   : App.currentPage === "confirmation" ? confirmationPage
+                                   : App.currentPage === "login" ? loginPage
+                                   : App.currentPage === "register" ? registerPage
+                                   : homePage
+                }
+                Controls.FooterDesktop {
+                    visible: !window.checkoutMode
+                    width: parent.width
+                }
+                Controls.CheckoutFooter {
+                    visible: window.checkoutMode
+                    width: parent.width
+                }
             }
         }
     }
@@ -111,6 +146,26 @@ Basic.ApplicationWindow {
     Component {
         id: productPage
         ShopPages.ProductPage {}
+    }
+    Component {
+        id: cartPage
+        CheckoutPages.CartPage {}
+    }
+    Component {
+        id: checkoutPage
+        CheckoutPages.CheckoutPage {}
+    }
+    Component {
+        id: confirmationPage
+        CheckoutPages.ConfirmationPage {}
+    }
+    Component {
+        id: loginPage
+        AccountPages.LoginPage {}
+    }
+    Component {
+        id: registerPage
+        AccountPages.RegisterPage {}
     }
 
     // ---------- Search suggestions (under the header search bar) ----------
@@ -156,9 +211,9 @@ Basic.ApplicationWindow {
         id: drawerPopup
         focus: true   // so Escape closes it
         x: window.width - width
-        y: header.height
+        y: topBar.height
         width: 460
-        height: window.height - header.height
+        height: window.height - topBar.height
         padding: 0
         modal: true
         dim: false
@@ -183,7 +238,7 @@ Basic.ApplicationWindow {
         z: 10
         anchors.right: parent.right
         anchors.rightMargin: 24
-        y: header.height + 24
+        y: topBar.height + 24
         spacing: 12
         Repeater {
             model: toastModel
@@ -207,7 +262,8 @@ Basic.ApplicationWindow {
     }
 
     // ---------- Verification only (--shot) ----------
-    // spec: "home", "shop", "shop:<category>", "search:<term>", "product:<id>", "quickview:<id>", "drawer", "suggest:<term>"
+    // spec: "home", "shop", "shop:<category>", "search:<term>", "product:<id>", "quickview:<id>", "drawer", "suggest:<term>",
+    //       "cart", "cartpromo", "cartlong", "cartempty", "login", "register", "checkout", "confirmation"
     function prepareShot(spec: var): void {
         const text = String(spec)
         const colon = text.indexOf(":")
@@ -230,6 +286,33 @@ Basic.ApplicationWindow {
             App.addToCart("P009", 1)
             App.addToCart("P001", 1)
             App.openCartDrawer()
+        } else if (name === "cart" || name === "cartpromo" || name === "cartlong") {
+            App.addToCart("P004", 1)
+            App.addToCart("P009", 1)
+            App.addToCart("P001", 1)
+            if (name === "cartlong")
+                App.addToCart("P012", 5)   // 12,250.00 EGP line: long amounts must not crowd the stepper
+            if (name === "cartpromo")
+                App.applyPromo("WELLNESS15")
+            App.go("cart")
+        } else if (name === "cartempty") {
+            App.go("cart")
+        } else if (name === "login" || name === "register") {
+            App.go(name)
+        } else if (name === "checkout" || name === "confirmation") {
+            // Verification only: the default admin account places a demo order on a throwaway data copy
+            App.login("admin", "Admin@1234")
+            App.addToCart("P004", 1)
+            App.addToCart("P009", 1)
+            App.addToCart("P001", 1)
+            App.applyPromo("WELLNESS15")
+            if (name === "checkout") {
+                App.go("checkout")
+            } else {
+                const result = App.placeOrder({ city: "Cairo", street: "El Tahrir Street, Downtown", building: "12", apartment: "4", postalCode: "11511" },
+                                              false, false, false)
+                App.go("confirmation", { orderId: result.orderId })
+            }
         } else if (name === "suggest") {
             overlayShot = true
             header.setSearch(arg)

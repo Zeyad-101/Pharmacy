@@ -3,6 +3,7 @@
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Controls.Basic as Basic
+import QtQuick.Layouts
 
 QtObject {
 
@@ -1491,6 +1492,443 @@ QtObject {
         elevation: "lg"
     }
 
+    // ===================== Forms =====================
+    // Form input: label, 52 px field and helper; states default / focus / filled / error / success / disabled
+    component FormInput: Column {
+        id: formInput
+        property string label: ""
+        property alias text: field.text
+        property string placeholder: ""
+        property string helper: ""
+        property string status: ""          // "", "error" or "success"
+        property bool password: false
+        property int maximumLength: 120
+        readonly property bool focused: field.activeFocus
+        signal accepted()
+
+        function focusField() {
+            field.forceActiveFocus()
+        }
+
+        width: 360
+        spacing: 8
+
+        PText {
+            visible: formInput.label !== ""
+            ts: Theme.link
+            color: Theme.textLabel
+            text: formInput.label
+        }
+        Item {
+            width: parent.width
+            height: 52
+            Rectangle {
+                visible: formInput.focused && formInput.status === ""
+                anchors.fill: parent
+                anchors.margins: -Theme.focusRingWidth
+                radius: Theme.rInput + Theme.focusRingWidth
+                color: Theme.focusRing
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.rInput
+                color: formInput.enabled ? Theme.white : Theme.midnight100
+                border.width: formInput.focused && formInput.status === "" ? Theme.borderFocus : Theme.borderThin
+                border.color: !formInput.enabled ? Theme.midnight100
+                            : formInput.status === "error" ? Theme.error
+                            : formInput.status === "success" ? Theme.success
+                            : formInput.focused ? Theme.royal600 : Theme.borderControl
+            }
+            Basic.TextField {
+                id: field
+                anchors.left: parent.left
+                anchors.leftMargin: 16
+                anchors.right: statusIcon.visible ? statusIcon.left : parent.right
+                anchors.rightMargin: statusIcon.visible ? 10 : 16
+                anchors.verticalCenter: parent.verticalCenter
+                height: 40
+                leftPadding: 0
+                rightPadding: 0
+                topPadding: 0
+                bottomPadding: 0
+                verticalAlignment: TextInput.AlignVCenter
+                font.family: Theme.body.family
+                font.pixelSize: Theme.body.size
+                font.weight: Theme.body.weight
+                color: formInput.enabled ? Theme.textPrimary : Theme.midnight300
+                placeholderText: formInput.placeholder
+                placeholderTextColor: Theme.textMuted
+                echoMode: formInput.password ? TextInput.Password : TextInput.Normal
+                maximumLength: formInput.maximumLength
+                selectByMouse: true
+                selectionColor: Theme.sky300
+                selectedTextColor: Theme.textPrimary
+                background: Item {}
+                onAccepted: formInput.accepted()
+            }
+            Icon {
+                id: statusIcon
+                visible: formInput.status !== ""
+                anchors.right: parent.right
+                anchors.rightMargin: 16
+                anchors.verticalCenter: parent.verticalCenter
+                name: formInput.status === "error" ? "info" : "check"
+                size: 18
+                color: formInput.status === "error" ? Theme.error : Theme.success
+            }
+        }
+        PText {
+            visible: formInput.helper !== ""
+            width: parent.width
+            ts: Theme.caption
+            color: formInput.status === "error" ? Theme.error
+                 : formInput.status === "success" ? Theme.success : Theme.textSecondary
+            wrapMode: Text.WordWrap
+            text: formInput.helper
+        }
+    }
+
+    // Error banner ("Please fix 2 fields before continuing.")
+    component ErrorBanner: Rectangle {
+        id: errorBanner
+        property string text: ""
+        height: Math.max(46, bannerText.height + 28)
+        radius: Theme.rMenu
+        color: Theme.errorBg
+        border.width: Theme.borderThin
+        border.color: Theme.alpha(Theme.error, 0.4)
+        Icon {
+            id: bannerIcon
+            x: 18
+            anchors.verticalCenter: parent.verticalCenter
+            name: "info"
+            size: 18
+            color: Theme.error
+        }
+        PText {
+            id: bannerText
+            anchors.left: bannerIcon.right
+            anchors.leftMargin: 12
+            anchors.right: parent.right
+            anchors.rightMargin: 18
+            anchors.verticalCenter: parent.verticalCenter
+            ts: Theme.link
+            color: Theme.error
+            wrapMode: Text.WordWrap
+            text: errorBanner.text
+        }
+    }
+
+    // Inline notice in the bag ("… quantity updated to 2." with Dismiss / Undo)
+    component InlineNotice: Rectangle {
+        id: notice
+        property string text: ""
+        property string actionText: ""
+        signal action()
+        height: 46
+        radius: Theme.rMenu
+        color: Theme.surfaceTint
+        border.width: Theme.borderThin
+        border.color: Theme.sky200
+        Icon {
+            id: noticeIcon
+            x: 18
+            anchors.verticalCenter: parent.verticalCenter
+            name: "info"
+            size: 18
+            color: Theme.royal600
+        }
+        PText {
+            anchors.left: noticeIcon.right
+            anchors.leftMargin: 12
+            anchors.right: noticeAction.left
+            anchors.rightMargin: 12
+            anchors.verticalCenter: parent.verticalCenter
+            ts: Theme.small13
+            color: Theme.midnight800
+            elide: Text.ElideRight
+            text: notice.text
+        }
+        TextLink {
+            id: noticeAction
+            anchors.right: parent.right
+            anchors.rightMargin: 18
+            anchors.verticalCenter: parent.verticalCenter
+            textStyle: Theme.linkBold
+            text: notice.actionText
+            onClicked: notice.action()
+        }
+    }
+
+    // A label / value row in an order summary
+    component SummaryRow: Item {
+        id: summaryRow
+        property string label: ""
+        property string value: ""
+        property color valueColor: Theme.textPrimary
+        property bool compact: false
+        width: parent ? parent.width : 376
+        height: compact ? 22 : 26
+        PText {
+            anchors.verticalCenter: parent.verticalCenter
+            ts: summaryRow.compact ? Theme.bodyS : Theme.body
+            color: Theme.textBody
+            text: summaryRow.label
+        }
+        PText {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            ts: summaryRow.compact ? Theme.link : Theme.valueStrong
+            color: summaryRow.valueColor
+            text: summaryRow.value
+        }
+    }
+
+    // Promo code field: default (Apply) / applied (green, Remove)
+    component PromoField: Column {
+        id: promoField
+        property string appliedCode: ""
+        property string successText: ""
+        readonly property bool applied: appliedCode !== ""
+        signal applyRequested(string code)
+        signal removeRequested()
+
+        function clear() {
+            promoInput.text = ""
+        }
+
+        width: 376
+        spacing: 8
+
+        Rectangle {
+            width: parent.width
+            height: 52
+            radius: height / 2
+            color: promoField.applied ? Theme.successBg : Theme.surfaceTint
+            border.width: Theme.borderThin
+            border.color: promoField.applied ? Theme.success : Theme.borderHairline
+            Icon {
+                id: tagIcon
+                x: 18
+                anchors.verticalCenter: parent.verticalCenter
+                name: "tag"
+                size: 16
+                color: promoField.applied ? Theme.success : Theme.textMuted
+            }
+            PText {
+                visible: promoField.applied
+                anchors.left: tagIcon.right
+                anchors.leftMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                ts: Theme.promoCode
+                text: promoField.appliedCode
+            }
+            Basic.TextField {
+                id: promoInput
+                visible: !promoField.applied
+                anchors.left: tagIcon.right
+                anchors.leftMargin: 10
+                anchors.right: applyButton.left
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                height: 40
+                leftPadding: 0
+                rightPadding: 0
+                topPadding: 0
+                bottomPadding: 0
+                verticalAlignment: TextInput.AlignVCenter
+                font.family: Theme.body.family
+                font.pixelSize: Theme.body.size
+                font.weight: Theme.body.weight
+                color: Theme.textPrimary
+                placeholderText: "Promo code"
+                placeholderTextColor: Theme.textMuted
+                maximumLength: 30
+                selectByMouse: true
+                background: Item {}
+                onAccepted: promoField.applyRequested(text)
+            }
+            PcButton {
+                id: applyButton
+                anchors.right: parent.right
+                anchors.rightMargin: 6
+                anchors.verticalCenter: parent.verticalCenter
+                height: 40
+                horizontalPadding: 18
+                textStyle: Theme.link
+                variant: promoField.applied ? "secondary" : "primary"
+                text: promoField.applied ? "Remove" : "Apply"
+                onClicked: promoField.applied ? promoField.removeRequested() : promoField.applyRequested(promoInput.text)
+            }
+        }
+        Row {
+            visible: promoField.applied && promoField.successText !== ""
+            spacing: 6
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                name: "check"
+                size: 14
+                color: Theme.success
+            }
+            PText {
+                ts: Theme.chip
+                color: Theme.success
+                text: promoField.successText
+            }
+        }
+    }
+
+    // Checkout stepper: numbered dots joined by connectors (current = dark, done = blue with a check)
+    component CheckoutStepper: RowLayout {
+        id: stepper
+        property var steps: []
+        property int current: 0
+        // One entry per dot and per connector, so the delegates only read their own data
+        readonly property var cells: {
+            const list = []
+            for (let i = 0; i < steps.length; ++i) {
+                if (i > 0)
+                    list.push({ connector: true, done: i <= current, label: "", number: 0, active: false })
+                list.push({ connector: false, done: i < current, active: i === current, label: steps[i], number: i + 1 })
+            }
+            return list
+        }
+        spacing: 10
+        height: 32
+
+        Repeater {
+            model: stepper.cells
+            delegate: Item {
+                id: stepCell
+                required property var modelData
+                Layout.fillWidth: modelData.connector
+                Layout.preferredWidth: modelData.connector ? 40 : stepRow.implicitWidth
+                Layout.preferredHeight: 32
+                Rectangle {
+                    visible: stepCell.modelData.connector
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width
+                    height: 2
+                    radius: height / 2
+                    color: stepCell.modelData.done ? Theme.royal600 : Theme.borderControl
+                }
+                Row {
+                    id: stepRow
+                    visible: !stepCell.modelData.connector
+                    spacing: 10
+                    Rectangle {
+                        width: 32
+                        height: 32
+                        radius: height / 2
+                        color: stepCell.modelData.done ? Theme.royal600 : stepCell.modelData.active ? Theme.midnight900 : Theme.white
+                        border.width: stepCell.modelData.done || stepCell.modelData.active ? 0 : Theme.borderThin
+                        border.color: Theme.borderControl
+                        Icon {
+                            visible: stepCell.modelData.done
+                            anchors.centerIn: parent
+                            name: "check"
+                            size: 16
+                            color: Theme.white
+                        }
+                        PText {
+                            visible: !stepCell.modelData.done
+                            anchors.centerIn: parent
+                            ts: Theme.linkBold
+                            color: stepCell.modelData.active ? Theme.white : Theme.textMuted
+                            text: stepCell.modelData.number
+                        }
+                    }
+                    PText {
+                        anchors.verticalCenter: parent.verticalCenter
+                        ts: stepCell.modelData.active ? Theme.linkBold : Theme.small13
+                        color: stepCell.modelData.active ? Theme.textPrimary
+                             : stepCell.modelData.done ? Theme.textLabel : Theme.textMuted
+                        text: stepCell.modelData.label
+                    }
+                }
+            }
+        }
+    }
+
+    // Order status tracker: placed -> pharmacist check -> packed & dispatched -> delivered
+    component StatusTracker: Column {
+        id: tracker
+        property string status: "pending"
+        property string placedText: ""
+        // Backend statuses mapped onto the 4 design steps (cancelled shows no progress)
+        readonly property int reached: status === "cancelled" ? -1
+                                     : status === "delivered" ? 3
+                                     : status === "shipped" || status === "processing" ? 2
+                                     : status === "confirmed" ? 1 : 0
+        readonly property var stepsModel: {
+            const labels = ["Order placed", "Pharmacist check", "Packed & dispatched", "Delivered"]
+            const icons = ["bag", "rx", "truck", "home"]
+            const list = []
+            for (let i = 0; i < 4; ++i) {
+                const finished = i < reached || (i === 3 && reached === 3)
+                const current = i === reached && i < 3
+                list.push({
+                    label: labels[i],
+                    icon: finished ? "check" : icons[i],
+                    finished: finished,
+                    current: current,
+                    detail: i === 0 ? placedText : (current ? "In progress" : ""),
+                    lineDone: i < reached,
+                    last: i === 3
+                })
+            }
+            return list
+        }
+        spacing: 0
+
+        Repeater {
+            model: tracker.stepsModel
+            delegate: Item {
+                id: trackStep
+                required property var modelData
+                width: parent ? parent.width : 0
+                height: modelData.last ? 44 : 64
+                Rectangle {
+                    visible: !trackStep.modelData.last
+                    x: 15
+                    y: 32
+                    width: 2
+                    height: parent.height - 32
+                    color: trackStep.modelData.lineDone ? Theme.royal600 : Theme.borderControl
+                }
+                Rectangle {
+                    width: 32
+                    height: 32
+                    radius: height / 2
+                    color: trackStep.modelData.finished ? Theme.royal600 : trackStep.modelData.current ? Theme.midnight900 : Theme.white
+                    border.width: trackStep.modelData.finished || trackStep.modelData.current ? 0 : Theme.borderThin
+                    border.color: Theme.borderControl
+                    Icon {
+                        anchors.centerIn: parent
+                        name: trackStep.modelData.icon
+                        size: 16
+                        color: trackStep.modelData.finished || trackStep.modelData.current ? Theme.white : Theme.textMuted
+                    }
+                }
+                Column {
+                    x: 48
+                    spacing: 2
+                    PText {
+                        ts: trackStep.modelData.finished || trackStep.modelData.current ? Theme.linkBold : Theme.small13
+                        color: trackStep.modelData.finished || trackStep.modelData.current ? Theme.textPrimary : Theme.textMuted
+                        text: trackStep.modelData.label
+                    }
+                    PText {
+                        visible: text !== ""
+                        ts: Theme.meta12
+                        color: trackStep.modelData.current ? Theme.royal600 : Theme.textSecondary
+                        text: trackStep.modelData.detail
+                    }
+                }
+            }
+        }
+    }
+
     // ===================== Header =====================
     component HeaderDesktop: Item {
         id: header
@@ -1501,6 +1939,7 @@ QtObject {
         signal searchSubmitted(string text)
         signal searchEscaped()
         signal cartClicked()
+        signal signOutRequested()
 
         function clearSearch() {
             searchBar.clear()
@@ -1628,12 +2067,13 @@ QtObject {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 10
-                    // Account pill
+                    // Account pill: guests go to "Sign in"; signed-in users get the account menu
                     Rectangle {
+                        id: accountPill
                         width: accountRow.implicitWidth + 18
                         height: 52
                         radius: height / 2
-                        color: accountHover.hovered && App.isLoggedIn ? Theme.surfaceTint : "transparent"
+                        color: accountHover.hovered || accountMenu.opened ? Theme.surfaceTint : "transparent"
                         Row {
                             id: accountRow
                             x: 6
@@ -1659,12 +2099,46 @@ QtObject {
                                 }
                                 PText {
                                     ts: Theme.link
-                                    text: App.isLoggedIn ? (App.isAdmin ? "Admin" : "My account") : "Guest"
+                                    text: App.isLoggedIn ? (App.isAdmin ? "Admin" : "My account") : "Sign in"
                                 }
                             }
                         }
                         HoverHandler {
                             id: accountHover
+                            cursorShape: Qt.PointingHandCursor
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                if (App.isLoggedIn)
+                                    accountMenu.opened ? accountMenu.close() : accountMenu.open()
+                                else
+                                    App.go("login")
+                            }
+                        }
+                        Basic.Popup {
+                            id: accountMenu
+                            y: accountPill.height + 6
+                            width: 240
+                            padding: 8
+                            closePolicy: Basic.Popup.CloseOnEscape | Basic.Popup.CloseOnPressOutsideParent
+                            background: ShadowRect {
+                                radius: Theme.rMenu
+                                color: Theme.white
+                                border.width: Theme.borderThin
+                                border.color: Theme.borderHairline
+                                elevation: "md"
+                            }
+                            contentItem: Column {
+                                spacing: 2
+                                MenuOption {
+                                    text: "Sign out"
+                                    onClicked: {
+                                        accountMenu.close()
+                                        header.signOutRequested()
+                                    }
+                                }
+                            }
                         }
                     }
                     // Cart pill
@@ -1901,6 +2375,69 @@ QtObject {
                     }
                 }
             }
+        }
+    }
+
+    // ===================== Checkout header / footer =====================
+    component CheckoutHeader: Rectangle {
+        width: parent ? parent.width : Theme.designWidth
+        height: Theme.checkoutHeaderHeight
+        color: Theme.white
+        Divider {
+            anchors.bottom: parent.bottom
+            width: parent.width
+        }
+        Item {
+            width: Theme.contentWidth
+            height: parent.height
+            anchors.horizontalCenter: parent.horizontalCenter
+            Logo {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                HoverHandler {
+                    cursorShape: Qt.PointingHandCursor
+                }
+                TapHandler {
+                    onTapped: App.go("home")
+                }
+            }
+            Rectangle {
+                anchors.centerIn: parent
+                width: secureRow.implicitWidth + 32
+                height: 33
+                radius: height / 2
+                color: Theme.successBg
+                Row {
+                    id: secureRow
+                    anchors.centerIn: parent
+                    spacing: 8
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "lock"
+                        size: 16
+                        color: Theme.success
+                    }
+                    PText {
+                        anchors.verticalCenter: parent.verticalCenter
+                        ts: Theme.linkBold
+                        color: Theme.success
+                        text: "Secure checkout"
+                    }
+                }
+            }
+        }
+    }
+
+    component CheckoutFooter: Rectangle {
+        width: parent ? parent.width : Theme.designWidth
+        height: 64
+        color: Theme.white
+        PText {
+            x: (parent.width - Theme.contentWidth) / 2
+            anchors.verticalCenter: parent.verticalCenter
+            ts: Theme.meta12
+            color: Theme.textMuted
+            text: "© 2026 PharmaCare Pharmacy · Egypt"
         }
     }
 }
