@@ -63,6 +63,9 @@ struct CheckoutResult {
 class CheckoutManager
 {
 public:
+    // Guest checkout: customerId elly byebda2 b "GUEST" (masalan "GUEST-01012345678") yb2a talab men gher account
+    static constexpr char GUEST_CUSTOMER_PREFIX[] = "GUEST";
+
     CheckoutManager(CartManager& cart,
                     PromoCodeManager& promos,
                     InventoryManager& inventory,

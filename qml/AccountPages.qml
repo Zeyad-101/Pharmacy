@@ -69,7 +69,7 @@ QtObject {
                         ts: Theme.body
                         color: Theme.textSecondary
                         wrapMode: Text.WordWrap
-                        text: loginPage.next === "checkout" ? "Sign in to continue to checkout."
+                        text: loginPage.next === "checkout" ? "Sign in to continue to checkout, or check out as a guest."
                             : loginPage.next === "admin" ? "Sign in with an admin account to manage the shop."
                             : loginPage.next === "account" ? "Sign in to see your account and your orders."
                             : "Sign in to check out and follow your orders."
@@ -104,6 +104,15 @@ QtObject {
                     text: "Sign in"
                     iconName: "arrowR"
                     onClicked: loginPage.submit()
+                }
+                // Guest checkout: registration is optional when the customer came from the checkout
+                Controls.PcButton {
+                    visible: loginPage.next === "checkout"
+                    width: parent.width
+                    height: 56
+                    variant: "secondary"
+                    text: "Continue as guest"
+                    onClicked: App.continueAsGuest()
                 }
                 Controls.Divider {
                     width: parent.width
@@ -232,6 +241,8 @@ QtObject {
                         label: "Phone number"
                         placeholder: "01XXXXXXXXX"
                         maximumLength: 11
+                        // After a guest order, "Create an account" brings the phone along
+                        text: App.pageParams.phone !== undefined ? App.pageParams.phone : ""
                         status: registerPage.fieldStatus("phone", text)
                         helper: status === "error" ? "11 digits, starting with 01" : ""
                         onAccepted: emailField.focusField()

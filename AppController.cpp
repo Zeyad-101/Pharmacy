@@ -5,6 +5,12 @@
 #include <QByteArray>
 #include <QDate>
 #include <QFile>
+#include <QDateTime>
+#include <QUrl>
+#include <QImageReader>
+#include <QImage>
+#include <QFileInfo>
+#include <QDir>
 #include <QJSEngine>
 #include <QLocale>
 #include <QQmlEngine>
@@ -540,7 +546,7 @@ QVariantMap AppController::cartItems() const
         row.insert(QStringLiteral("id"), item.getProductId());
         row.insert(QStringLiteral("name"), product.getName());
         row.insert(QStringLiteral("brand"), brandOf(product));
-        row.insert(QStringLiteral("image"), imageUrlFor(product.getImagePath()));
+        row.insert(QStringLiteral("image"), productImageUrl(product));
         row.insert(QStringLiteral("quantity"), item.getQuantity());
         row.insert(QStringLiteral("unitPriceText"), formatEgp(item.getUnitPriceMinor()));
         row.insert(QStringLiteral("lineTotalText"), formatEgp(item.getSubtotalMinor()));
@@ -689,6 +695,8 @@ QVariantMap AppController::login(const QString& emailOrUsername, const QString& 
 
 void AppController::logout()
 {
+    m_guestCheckout = false;
+    m_lastGuestOrderId.clear();
     m_authentication.logout();
     emit sessionChanged();
 }
@@ -775,10 +783,25 @@ bool AppController::isValidField(const QString& kind, const QString& value) cons
     return Validation::isNonEmptyText(value);
 }
 
+bool AppController::isGuestCheckout() const
+{
+    return m_guestCheckout && !m_authentication.isLoggedIn();
+}
+
+void AppController::continueAsGuest()
+{
+    // Guest checkout: registration is optional; admins still cannot shop (go() sends them to the dashboard)
+    if (!m_authentication.isLoggedIn()) {
+        m_guestCheckout = true;
+        emit sessionChanged();
+    }
+    go(QStringLiteral("checkout"));
+}
+
 void AppController::goToCheckout()
 {
-    // Checkout needs a customer: sign in first, then come back to the checkout
-    if (m_authentication.isLoggedIn()) {
+    // Checkout needs a customer or a guest: otherwise sign in first (or continue as guest), then come back
+    if (m_authentication.isLoggedIn() || isGuestCheckout()) {
         go(QStringLiteral("checkout"));
     } else {
         QVariantMap params;
@@ -800,8 +823,15 @@ QVariantMap AppController::checkAddress(const QVariantMap& address) const
     if (!Validation::isNonEmptyText(address.value(QStringLiteral("building")).toString())) {
         missing.append(QStringLiteral("building"));
     }
+    // Guest checkout: the phone (kept in the guest customer id) uses the backend rule (11 digits, starts with 01)
+    const bool guestPhoneOk = !isGuestCheckout()
+                              || Validation::isValidPhone(address.value(QStringLiteral("phone")).toString().trimmed());
+    if (!guestPhoneOk) {
+        missing.append(QStringLiteral("phone"));
+    }
     QVariantMap result;
-    result.insert(QStringLiteral("ok"), addressFrom(address).isValid());
+    result.insert(QStringLiteral("ok"), addressFrom(address).isValid() && guestPhoneOk);
+    result.insert(QStringLiteral("phoneMessage"), userMessage(UserResult::InvalidPhone));
     result.insert(QStringLiteral("missing"), missing);
     result.insert(QStringLiteral("message"), missing.isEmpty()
                                                  ? QString()
@@ -819,6 +849,19 @@ QVariantMap AppController::placeOrder(const QVariantMap& address, bool saveAddre
 
     CheckoutRequest request;
     request.customerId = user ? user->getId() : QString();
+    if (!user && isGuestCheckout()) {
+        // Guest checkout: "GUEST-<phone>" (CheckoutManager does not look a guest up in the users)
+        const QString phone = address.value(QStringLiteral("phone")).toString().trimmed();
+        if (!Validation::isValidPhone(phone)) {
+            result.insert(QStringLiteral("ok"), false);
+            result.insert(QStringLiteral("status"), QStringLiteral("invalidPhone"));
+            result.insert(QStringLiteral("message"), userMessage(UserResult::InvalidPhone));
+            result.insert(QStringLiteral("orderId"), QString());
+            result.insert(QStringLiteral("priceChanges"), QVariantList());
+            return result;
+        }
+        request.customerId = QLatin1String(CheckoutManager::GUEST_CUSTOMER_PREFIX) + QLatin1Char('-') + phone;
+    }
     request.deliveryAddress = addressFrom(address);
     request.promoCode = m_promoCode;
     request.prescriptionConfirmed = prescriptionConfirmed;
@@ -901,6 +944,12 @@ QVariantMap AppController::placeOrder(const QVariantMap& address, bool saveAddre
                                         user->getPhone(), request.deliveryAddress);
         }
         m_promoCode.clear();
+        if (!user) {
+            // Guest checkout: only this order can be shown to the guest (confirmation page); no My orders
+            m_lastGuestOrderId = checkout.orderId;
+            m_guestCheckout = false;
+            emit sessionChanged();
+        }
         emit cartChanged();
         emit dataChanged();   // stock went down, a new order exists
     }
@@ -928,7 +977,7 @@ QVariantMap AppController::order(const QString& orderId) const
         row.insert(QStringLiteral("id"), item.getProductId());
         row.insert(QStringLiteral("name"), product.getName());
         row.insert(QStringLiteral("brand"), brandOf(product));
-        row.insert(QStringLiteral("image"), imageUrlFor(product.getImagePath()));
+        row.insert(QStringLiteral("image"), productImageUrl(product));
         row.insert(QStringLiteral("quantity"), item.getQuantity());
         row.insert(QStringLiteral("unitPriceText"), formatEgp(item.getUnitPriceMinor()));
         row.insert(QStringLiteral("lineTotalText"), formatEgp(item.getSubtotalMinor()));
@@ -955,6 +1004,8 @@ QVariantMap AppController::order(const QString& orderId) const
     result.insert(QStringLiteral("canCancel"), summary.value(QStringLiteral("canCancel")));
     result.insert(QStringLiteral("nextStatuses"), summary.value(QStringLiteral("nextStatuses")));
     result.insert(QStringLiteral("customerName"), summary.value(QStringLiteral("customerName")));
+    result.insert(QStringLiteral("isGuest"), summary.value(QStringLiteral("isGuest")));
+    result.insert(QStringLiteral("guestPhone"), summary.value(QStringLiteral("guestPhone")));
     result.insert(QStringLiteral("dateShortText"),
                   QLocale(QLocale::English).toString(found->getCreatedAt(), QStringLiteral("d MMM, HH:mm")));
     return result;
@@ -1000,7 +1051,7 @@ QVariantMap AppController::productToMap(const Product& product) const
                product.hasExpiryDate()
                    ? QLocale(QLocale::English).toString(product.getExpiryDate(), QStringLiteral("d MMM yyyy"))
                    : QString());
-    map.insert(QStringLiteral("image"), imageUrlFor(product.getImagePath()));
+    map.insert(QStringLiteral("image"), productImageUrl(product));
     return map;
 }
 
@@ -1042,6 +1093,32 @@ QString AppController::imageUrlFor(const QString& imagePath)
         return QString();
     }
     return QLatin1String(kResourceUrl) + clean;
+}
+
+QString AppController::uploadedImagePath(const QString& productId) const
+{
+    // Only plain ids ("P004") become file names
+    if (!Validation::isValidId(productId) || productId.contains(QLatin1Char('/')) || productId.contains(QLatin1Char('\\'))
+        || productId.contains(QLatin1String(".."))) {
+        return QString();
+    }
+    return m_dataDir + QStringLiteral("/images/") + productId + QStringLiteral(".png");
+}
+
+QString AppController::productImageUrl(const Product& product) const
+{
+    // 1. an image uploaded by the admin; the file time is added so a replaced image is not taken from QML's cache
+    const QString uploaded = uploadedImagePath(product.getId());
+    if (!uploaded.isEmpty()) {
+        const QFileInfo info(uploaded);
+        if (info.exists()) {
+            QUrl url = QUrl::fromLocalFile(info.absoluteFilePath());
+            url.setQuery(QStringLiteral("v=") + QString::number(info.lastModified().toMSecsSinceEpoch()));
+            return url.toString();
+        }
+    }
+    // 2. the image bundled with the app, 3. "" = the design placeholder
+    return imageUrlFor(product.getImagePath());
 }
 
 QString AppController::productName(const QString& productId) const
@@ -1257,7 +1334,11 @@ QVariantMap AppController::changePassword(const QString& currentPassword, const 
 bool AppController::ownsOrder(const Order& order) const
 {
     const std::optional<User> user = m_authentication.currentUser();
-    return user && (user->isAdmin() || order.getCustomerId() == user->getId());
+    if (!user) {
+        // Guest checkout: a guest sees only the order just placed in this session
+        return !m_lastGuestOrderId.isEmpty() && order.getOrderId() == m_lastGuestOrderId;
+    }
+    return user->isAdmin() || order.getCustomerId() == user->getId();
 }
 
 QVariantMap AppController::orderSummaryMap(const Order& order) const
@@ -1268,14 +1349,18 @@ QVariantMap AppController::orderSummaryMap(const Order& order) const
     for (const CartItem& item : items) {
         units += item.getQuantity();
         if (images.size() < 3) {
-            images.append(imageUrlFor(item.getProduct().getImagePath()));
+            images.append(productImageUrl(item.getProduct()));
         }
     }
     const QString status = order.getStatus();
     QString customerName = order.getCustomerId();
-    const std::optional<User> customer = m_userManager.getUserById(order.getCustomerId());
+    const QString guestPrefix = QLatin1String(CheckoutManager::GUEST_CUSTOMER_PREFIX) + QLatin1Char('-');
+    const bool guest = order.getCustomerId().startsWith(QLatin1String(CheckoutManager::GUEST_CUSTOMER_PREFIX));
+    const std::optional<User> customer = guest ? std::nullopt : m_userManager.getUserById(order.getCustomerId());
     if (customer) {
         customerName = customer->getUsername();
+    } else if (guest) {
+        customerName = QStringLiteral("Guest · ") + order.getCustomerId().mid(guestPrefix.size());
     }
     QVariantList next;
     const QStringList nextStatuses = Order::nextStatusesFor(status);
@@ -1290,6 +1375,8 @@ QVariantMap AppController::orderSummaryMap(const Order& order) const
     map.insert(QStringLiteral("orderId"), order.getOrderId());
     map.insert(QStringLiteral("customerId"), order.getCustomerId());
     map.insert(QStringLiteral("customerName"), customerName);
+    map.insert(QStringLiteral("isGuest"), guest);
+    map.insert(QStringLiteral("guestPhone"), guest ? order.getCustomerId().mid(guestPrefix.size()) : QString());
     map.insert(QStringLiteral("status"), status);
     map.insert(QStringLiteral("statusLabel"), statusLabel(status));
     map.insert(QStringLiteral("createdText"),
@@ -1437,6 +1524,26 @@ bool AppController::parseMoney(const QString& text, qint64* amountMinor)
     return true;
 }
 
+QVariantMap AppController::checkImageFile(const QUrl& file) const
+{
+    QVariantMap result;
+    const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    QString message;
+    if (suffix != QLatin1String("png") && suffix != QLatin1String("jpg") && suffix != QLatin1String("jpeg")) {
+        message = QStringLiteral("Choose a PNG or JPG image.");
+    } else {
+        QImageReader reader(path);
+        if (!reader.canRead()) {
+            message = QStringLiteral("This image cannot be read. Choose another PNG or JPG file.");
+        }
+    }
+    result.insert(QStringLiteral("ok"), message.isEmpty());
+    result.insert(QStringLiteral("message"), message);
+    result.insert(QStringLiteral("url"), message.isEmpty() ? QUrl::fromLocalFile(path).toString() : QString());
+    return result;
+}
+
 QStringList AppController::productCategories() const
 {
     return CategoryManager::getAllCategories();
@@ -1561,8 +1668,10 @@ QVariantMap AppController::adminProductForm(const QString& productId) const
         form.insert(QStringLiteral("stock"), QStringLiteral("0"));
         form.insert(QStringLiteral("expiry"), QString());
         form.insert(QStringLiteral("requiresPrescription"), false);
+        form.insert(QStringLiteral("image"), QString());
         return form;
     }
+    form.insert(QStringLiteral("image"), productImageUrl(*product));
     const qint64 price = product->getPriceMinor();
     form.insert(QStringLiteral("id"), product->getId());
     form.insert(QStringLiteral("name"), product->getName());
@@ -1613,9 +1722,21 @@ QVariantMap AppController::saveProduct(const QVariantMap& form)
     }
     QDate expiry;
     if (!expiryText.isEmpty()) {
-        expiry = QDate::fromString(expiryText, Qt::ISODate);
+        // The Date field sends "YYYY-MM-DD"; an empty field is allowed (the expiry date is optional)
+        const QStringList parts = expiryText.split(QLatin1Char('-'));
+        bool digitsOnly = parts.size() == 3 && parts.at(0).size() == 4 && parts.at(1).size() == 2 && parts.at(2).size() == 2;
+        for (const QString& part : parts) {
+            for (const QChar ch : part) {
+                digitsOnly = digitsOnly && ch.isDigit();
+            }
+        }
+        if (!digitsOnly) {
+            return fail(QStringLiteral("Enter the full date: 8 digits, like 20271231."), QStringLiteral("expiry"));
+        }
+        expiry = QDate(parts.at(0).toInt(), parts.at(1).toInt(), parts.at(2).toInt());
         if (!expiry.isValid()) {
-            return fail(QStringLiteral("Write the expiry date as YYYY-MM-DD, for example 2027-12-31."), QStringLiteral("expiry"));
+            // Month 1-12 and a day that exists in that month (2027-02-30 is rejected)
+            return fail(QStringLiteral("This date doesn't exist."), QStringLiteral("expiry"));
         }
     }
     if (!CategoryManager::isValidCategory(category)) {
@@ -1630,6 +1751,22 @@ QVariantMap AppController::saveProduct(const QVariantMap& form)
         if (existing) {
             imagePath = existing->getImagePath();
         }
+    }
+    // Product image (optional): read it now, write it only after the product is saved
+    QImage uploadedImage;
+    const QString imageFile = form.value(QStringLiteral("imageFile")).toString();
+    if (!imageFile.isEmpty()) {
+        const QVariantMap check = checkImageFile(QUrl(imageFile));
+        if (!check.value(QStringLiteral("ok")).toBool()) {
+            return fail(check.value(QStringLiteral("message")).toString(), QStringLiteral("image"));
+        }
+        const QUrl url(imageFile);
+        uploadedImage = QImage(url.isLocalFile() ? url.toLocalFile() : imageFile);
+        if (uploadedImage.isNull() || uploadedImagePath(id).isEmpty()) {
+            return fail(QStringLiteral("This image cannot be read. Choose another PNG or JPG file."), QStringLiteral("image"));
+        }
+        // The existing imagePath field points at the uploaded file (the Product model is unchanged)
+        imagePath = QStringLiteral("images/") + id + QStringLiteral(".png");
     }
     const Product product(id, name, code, CategoryManager::normalizeCategory(category), fullDescription,
                           priceMinor, stock, imagePath, expiry,
@@ -1654,8 +1791,20 @@ QVariantMap AppController::saveProduct(const QVariantMap& form)
             m_highestIssuedProductNumber = std::max(m_highestIssuedProductNumber, number);
         }
     }
+    QString imageNote;
+    if (!uploadedImage.isNull()) {
+        // Max 600 px on the long side (aspect ratio kept, smooth), saved as PNG in DATA_DIR/images/<id>.png
+        const QString target = uploadedImagePath(id);
+        QDir().mkpath(QFileInfo(target).absolutePath());
+        const QImage scaled = qMax(uploadedImage.width(), uploadedImage.height()) > 600
+                                  ? uploadedImage.scaled(600, 600, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+                                  : uploadedImage;
+        if (!scaled.save(target, "PNG")) {
+            imageNote = QStringLiteral(" The image could not be saved; try uploading it again.");
+        }
+    }
     result.insert(QStringLiteral("ok"), true);
-    result.insert(QStringLiteral("message"), (isNew ? QStringLiteral("Product added: ") : QStringLiteral("Product saved: ")) + name);
+    result.insert(QStringLiteral("message"), (isNew ? QStringLiteral("Product added: ") : QStringLiteral("Product saved: ")) + name + imageNote);
     result.insert(QStringLiteral("field"), QString());
     result.insert(QStringLiteral("id"), id);
     emit dataChanged();

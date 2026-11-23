@@ -298,7 +298,8 @@ Basic.ApplicationWindow {
     // spec: "home", "shop", "shop:<category>", "search:<term>", "product:<id>", "quickview:<id>", "drawer", "suggest:<term>",
     //       "cart", "cartpromo", "cartlong", "cartempty", "login", "register", "checkout", "confirmation",
     //       "account", "password", "orders", "orderdetails[:index]", "admin", "adminproducts", "adminorders",
-    //       "admininventory", "adminform[:<id>]", "adminpdp", "adminorderdetails"
+    //       "admininventory", "adminform[:<id>]", "adminpdp", "adminorderdetails",
+    //       "loginguest", "guestcheckout", "guestconfirmation"
     function prepareShot(spec: var): void {
         const text = String(spec)
         const colon = text.indexOf(":")
@@ -334,6 +335,21 @@ Basic.ApplicationWindow {
             App.go("cart")
         } else if (name === "login" || name === "register") {
             App.go(name)
+        } else if (name === "loginguest") {
+            // Sign in reached from the checkout: "Continue as guest" under "Sign in"
+            App.addToCart("P004", 1)
+            App.goToCheckout()
+        } else if (name === "guestcheckout" || name === "guestconfirmation") {
+            App.addToCart("P004", 1)
+            App.addToCart("P009", 1)
+            App.addToCart("P001", 1)
+            App.applyPromo("WELLNESS15")
+            App.continueAsGuest()
+            if (name === "guestconfirmation") {
+                const placed = App.placeOrder({ phone: "01012345678", city: "Cairo", street: "El Tahrir Street, Downtown",
+                                                building: "12", apartment: "4", postalCode: "11511" }, false, false, false)
+                App.go("confirmation", { orderId: placed.orderId })
+            }
         } else if (name === "checkout" || name === "confirmation") {
             // Verification only (Data/ is restored afterwards): a demo customer places a demo order
             demoCustomer()

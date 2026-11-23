@@ -1517,12 +1517,50 @@ QtObject {
         property string status: ""          // "", "error" or "success"
         property bool password: false
         property int maximumLength: 120
+        property bool dateFormat: false     // DateField: digits only, dashes added while typing (YYYY-MM-DD)
         readonly property bool focused: field.activeFocus
         signal accepted()
 
         function focusField() {
             field.forceActiveFocus()
         }
+        // "20271231" -> "2027-12-31": dashes after the 4th and the 6th digit, never a trailing dash
+        function formatDigits(digits: string): string {
+            if (digits.length <= 4)
+                return digits
+            if (digits.length <= 6)
+                return digits.substring(0, 4) + "-" + digits.substring(4)
+            return digits.substring(0, 4) + "-" + digits.substring(4, 6) + "-" + digits.substring(6)
+        }
+        property string lastDateText: ""
+        function reformatDate() {
+            const raw = field.text
+            const cursor = field.cursorPosition
+            let digits = raw.replace(/[^0-9]/g, "")
+            let digitsBeforeCursor = raw.substring(0, cursor).replace(/[^0-9]/g, "").length
+            // Backspace on a dash: the dash goes together with the digit before it
+            const previousDigits = lastDateText.replace(/[^0-9]/g, "")
+            if (raw.length < lastDateText.length && digits === previousDigits && digitsBeforeCursor > 0) {
+                digits = digits.substring(0, digitsBeforeCursor - 1) + digits.substring(digitsBeforeCursor)
+                digitsBeforeCursor -= 1
+            }
+            digits = digits.substring(0, 8)
+            digitsBeforeCursor = Math.min(digitsBeforeCursor, digits.length)
+            const formatted = formatDigits(digits)
+            // Put the cursor back after the same number of digits (no jumping)
+            let position = 0
+            let seen = 0
+            while (position < formatted.length && seen < digitsBeforeCursor) {
+                if (formatted[position] !== "-")
+                    ++seen
+                ++position
+            }
+            lastDateText = formatted
+            if (field.text !== formatted)
+                field.text = formatted
+            field.cursorPosition = position
+        }
+        onTextChanged: if (dateFormat && !field.activeFocus) lastDateText = text
 
         width: 360
         spacing: 8
@@ -1575,12 +1613,14 @@ QtObject {
                 placeholderText: formInput.placeholder
                 placeholderTextColor: Theme.textMuted
                 echoMode: formInput.password ? TextInput.Password : TextInput.Normal
-                maximumLength: formInput.maximumLength
+                maximumLength: formInput.dateFormat ? 10 : formInput.maximumLength
+                inputMethodHints: formInput.dateFormat ? Qt.ImhDigitsOnly : Qt.ImhNone
                 selectByMouse: true
                 selectionColor: Theme.sky300
                 selectedTextColor: Theme.textPrimary
                 background: Item {}
                 onAccepted: formInput.accepted()
+                onTextEdited: if (formInput.dateFormat) formInput.reformatDate()
             }
             Icon {
                 id: statusIcon
@@ -1605,6 +1645,13 @@ QtObject {
     }
 
     // Error banner ("Please fix 2 fields before continuing.")
+    // Date input (every date field of the app): the user types digits only, "20271231" shows "2027-12-31".
+    // The C++ side checks on submit that it is a real date ("This date doesn't exist.").
+    component DateField: FormInput {
+        dateFormat: true
+        placeholder: "YYYY-MM-DD"
+    }
+
     component ErrorBanner: Rectangle {
         id: errorBanner
         property string text: ""

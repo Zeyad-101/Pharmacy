@@ -650,7 +650,9 @@ QtObject {
         property bool acceptPriceChanges: false
         property var priceChanges: []
 
+        readonly property bool guest: App.isGuestCheckout
         readonly property var address: ({
+            phone: guestPhoneField.text,
             city: cityField.text,
             street: streetField.text,
             building: buildingField.text,
@@ -694,6 +696,11 @@ QtObject {
             } else if (result.status === "priceChanged") {
                 priceChanges = result.priceChanges
                 pricePopup.open()
+            } else if (result.status === "invalidPhone") {
+                // Guest checkout: back to the details with the backend's phone message
+                step = 0
+                missing = ["phone"]
+                bannerText = result.message
             } else if (result.status === "invalidAddress") {
                 step = 0
                 continueToReview()
@@ -801,7 +808,41 @@ QtObject {
                                 ts: Theme.body
                                 color: Theme.textSecondary
                                 wrapMode: Text.WordWrap
-                                text: "Where should we deliver your order?"
+                                text: checkout.guest ? "Checking out as a guest: a phone number for the delivery, then the address."
+                                                     : "Where should we deliver your order?"
+                            }
+                        }
+                        // Guest checkout: the backend keeps the phone with the order (no email or name is stored)
+                        Row {
+                            visible: checkout.guest
+                            spacing: 24
+                            Controls.FormInput {
+                                id: guestPhoneField
+                                width: 344
+                                label: "Phone number"
+                                placeholder: "01XXXXXXXXX"
+                                maximumLength: 11
+                                status: checkout.missing.indexOf("phone") !== -1 ? "error" : ""
+                                helper: status === "error" ? "Phone number must be 11 digits and start with 01." : ""
+                                onAccepted: checkout.continueToReview()
+                            }
+                            Item {
+                                width: 344
+                                height: 77
+                                Row {
+                                    y: 44
+                                    spacing: 6
+                                    Controls.PText {
+                                        ts: Theme.small13
+                                        color: Theme.textBody
+                                        text: "Have an account?"
+                                    }
+                                    Controls.TextLink {
+                                        textStyle: Theme.linkBold
+                                        text: "Sign in instead"
+                                        onClicked: App.go("login", { next: "checkout" })
+                                    }
+                                }
                             }
                         }
                         Row {
@@ -854,6 +895,7 @@ QtObject {
                         }
                         Controls.FilterCheckbox {
                             id: saveAddress
+                            visible: !checkout.guest      // a guest has no account to save it to
                             width: parent.width
                             text: "Save this address for future orders"
                             onToggled: checked = !checked
@@ -996,8 +1038,11 @@ QtObject {
                             spacing: 16
                             Repeater {
                                 model: [
-                                    { icon: "user", title: "Contact", line1: checkout.profile.ok ? checkout.profile.username : "",
-                                      line2: checkout.profile.ok ? checkout.profile.email + " · " + checkout.profile.phone : "", edit: false },
+                                    { icon: "user", title: "Contact",
+                                      line1: checkout.guest ? "Guest" : checkout.profile.ok ? checkout.profile.username : "",
+                                      line2: checkout.guest ? guestPhoneField.text
+                                           : checkout.profile.ok ? checkout.profile.email + " · " + checkout.profile.phone : "",
+                                      edit: checkout.guest, owner: checkout },
                                     { icon: "pin", title: "Shipping address",
                                       line1: (checkout.address.building !== "" ? "Building " + checkout.address.building + ", " : "")
                                              + (checkout.address.apartment !== "" ? "Apt " + checkout.address.apartment + ", " : "")
@@ -1538,7 +1583,8 @@ QtObject {
                         anchors.horizontalCenter: parent.horizontalCenter
                         ts: Theme.successTitle
                         horizontalAlignment: Text.AlignHCenter
-                        text: App.currentUserName !== "" ? "Thank you, " + App.currentUserName + "." : "Thank you."
+                        text: App.currentUserName !== "" && !(confirmation.found && confirmation.orderData.isGuest)
+                              ? "Thank you, " + App.currentUserName + "." : "Thank you."
                     }
                     Controls.PText {
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -1601,8 +1647,9 @@ QtObject {
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
                         spacing: 12
-                        // Design "Track Order": opens this order in My orders (live status from the backend)
+                        // Design "Track Order": opens this order in My orders (live status from the backend); not for guests
                         Controls.PcButton {
+                            visible: !(confirmation.found && confirmation.orderData.isGuest)
                             text: "Track Order"
                             iconName: "arrowR"
                             onClicked: App.go("orderDetails", { orderId: confirmation.orderData.orderId })
@@ -1611,6 +1658,22 @@ QtObject {
                             variant: "secondary"
                             text: "Continue Shopping"
                             onClicked: App.go("home")
+                        }
+                    }
+                    // Guest checkout: no My orders for guests; an account can be created now (the phone comes along)
+                    Row {
+                        visible: confirmation.found && confirmation.orderData.isGuest === true
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 6
+                        Controls.PText {
+                            ts: Theme.small13
+                            color: Theme.textBody
+                            text: "Want to follow your next orders?"
+                        }
+                        Controls.TextLink {
+                            textStyle: Theme.linkBold
+                            text: "Create an account"
+                            onClicked: App.go("register", { phone: confirmation.orderData.guestPhone })
                         }
                     }
                 }

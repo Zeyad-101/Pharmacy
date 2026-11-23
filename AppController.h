@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
@@ -40,6 +41,7 @@ class AppController : public QObject
     Q_PROPERTY(bool isLoggedIn READ isLoggedIn NOTIFY sessionChanged)
     Q_PROPERTY(bool isAdmin READ isAdmin NOTIFY sessionChanged)
     Q_PROPERTY(QString currentUserName READ currentUserName NOTIFY sessionChanged)
+    Q_PROPERTY(bool isGuestCheckout READ isGuestCheckout NOTIFY sessionChanged)
     Q_PROPERTY(int cartCount READ cartCount NOTIFY cartChanged)
     Q_PROPERTY(QString cartSubtotalText READ cartSubtotalText NOTIFY cartChanged)
     Q_PROPERTY(QString promoCode READ promoCode NOTIFY cartChanged)
@@ -69,6 +71,7 @@ public:
     bool isLoggedIn() const;
     bool isAdmin() const;
     QString currentUserName() const;
+    bool isGuestCheckout() const;
     int cartCount() const;
     QString cartSubtotalText() const;
     QString promoCode() const;
@@ -117,6 +120,8 @@ public:
 
     // Checkout and orders
     Q_INVOKABLE void goToCheckout();
+    // Guest checkout: no account; the order is stored with the customer id "GUEST-<phone>"
+    Q_INVOKABLE void continueAsGuest();
     Q_INVOKABLE QVariantMap checkAddress(const QVariantMap& address) const;
     Q_INVOKABLE QVariantMap placeOrder(const QVariantMap& address, bool saveAddress,
                                        bool prescriptionConfirmed, bool acceptPriceChanges);
@@ -141,6 +146,8 @@ public:
     Q_INVOKABLE QVariantList expiredProducts() const;
     Q_INVOKABLE QVariantMap increaseStock(const QString& productId, const QString& quantityText);
     Q_INVOKABLE QStringList productCategories() const;
+    // Product image upload (admin): check the chosen file before saving (PNG / JPG, readable)
+    Q_INVOKABLE QVariantMap checkImageFile(const QUrl& file) const;
 
     // Icons: the SVG with its colour replaced, as a data URL
     Q_INVOKABLE QString iconSource(const QString& name, const QColor& color);
@@ -162,6 +169,9 @@ private:
     static QString brandOf(const Product& product);
     static QString descriptionOf(const Product& product);
     static QString imageUrlFor(const QString& imagePath);
+    // Uploaded DATA_DIR/images/<id>.png, else the bundled image, else "" (QML shows the design placeholder)
+    QString productImageUrl(const Product& product) const;
+    QString uploadedImagePath(const QString& productId) const;
     static QString cartMessage(CartResult result);
     static QString promoMessage(PromoResult result, int percentage);
     static QString userMessage(UserResult result);
@@ -181,6 +191,9 @@ private:
     QString productName(const QString& productId) const;
 
     QString m_dataDir;
+    // Guest checkout: chosen on the Sign in page; the last guest order may be shown on the confirmation page
+    bool m_guestCheckout = false;
+    QString m_lastGuestOrderId;
     // Highest product number added in this session (new product ids are never reused, see nextProductId)
     int m_highestIssuedProductNumber = 0;
 
