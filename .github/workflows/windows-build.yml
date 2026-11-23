@@ -119,11 +119,71 @@ jobs:
           [ "$(wc -l < selftest.clean)" -eq 7 ] || { echo "::error::selftest printed extra lines"; exit 1; }
           echo "selftest OK"
 
+      - name: Probe the GUI start (diagnostic only; Qt platform / RHI / scene graph logging)
+        continue-on-error: true
+        run: |
+          mkdir -p shots/probe
+          # run_limited <seconds> <log> <image name> <command...>: runs the command, and if it is still running after
+          # <seconds> it saves a gdb backtrace of every thread (<log>.hang-bt.txt), kills it and returns 124
+          run_limited() {
+            local limit=$1 log=$2 image=$3; shift 3
+            "$@" > "$log" 2>&1 &
+            local pid=$! waited=0
+            while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
+            if kill -0 "$pid" 2>/dev/null; then
+              local winpid
+              winpid=$(tasklist //FI "IMAGENAME eq $image" //FO CSV //NH | head -1 | cut -d'"' -f4)
+              echo "  still running after ${limit}s (pid $winpid): saving a backtrace"
+              "$MINGW_BIN/gdb.exe" -batch -p "$winpid" -ex "info threads" -ex "thread apply all bt 25" > "$log.hang-bt.txt" 2>&1 || true
+              taskkill //F //IM "$image" > /dev/null 2>&1 || true
+              wait "$pid" 2>/dev/null || true
+              return 124
+            fi
+            wait "$pid"
+          }
+          for mode in default offscreen software; do
+            rm -rf Data && mkdir Data && cp -r "$RUNNER_TEMP/data_seed/." Data/
+            case $mode in
+              default)   platform=""; backend="" ;;
+              offscreen) platform="offscreen"; backend="" ;;
+              software)  platform="offscreen"; backend="software" ;;
+            esac
+            set +e
+            run_limited 45 "shots/probe/home-$mode.log" SmartPharmacy.exe \
+              env PATH="$(pwd)/deploy:/c/Windows/System32:/c/Windows" QT_QPA_PLATFORM="$platform" QT_QUICK_BACKEND="$backend" \
+                  QT_LOGGING_RULES="qt.qpa.*=true;qt.rhi.general=true;qt.scenegraph.general=true" \
+                  ./deploy/SmartPharmacy.exe --shot home "shots/probe/home-$mode.png"
+            echo "probe [$mode]: exit $?"
+            set -e
+            tail -25 "shots/probe/home-$mode.log"
+            [ -f "shots/probe/home-$mode.log.hang-bt.txt" ] && grep -E "^#|^Thread|^\*" "shots/probe/home-$mode.log.hang-bt.txt" | head -60
+          done
+          true
+
       - name: Screenshots with --shot (fail on a non-zero exit or any QML warning)
+        timeout-minutes: 30
         run: |
           mkdir -p shots
           : > shots/modes.txt
           fail=0
+          # run_limited <seconds> <log> <image name> <command...>: runs the command, and if it is still running after
+          # <seconds> it saves a gdb backtrace of every thread (<log>.hang-bt.txt), kills it and returns 124
+          run_limited() {
+            local limit=$1 log=$2 image=$3; shift 3
+            "$@" > "$log" 2>&1 &
+            local pid=$! waited=0
+            while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
+            if kill -0 "$pid" 2>/dev/null; then
+              local winpid
+              winpid=$(tasklist //FI "IMAGENAME eq $image" //FO CSV //NH | head -1 | cut -d'"' -f4)
+              echo "  still running after ${limit}s (pid $winpid): saving a backtrace"
+              "$MINGW_BIN/gdb.exe" -batch -p "$winpid" -ex "info threads" -ex "thread apply all bt 25" > "$log.hang-bt.txt" 2>&1 || true
+              taskkill //F //IM "$image" > /dev/null 2>&1 || true
+              wait "$pid" 2>/dev/null || true
+              return 124
+            fi
+            wait "$pid"
+          }
           run_shot() {  # $1 = page spec, $2 = file name
             for mode in default offscreen software; do
               rm -rf Data && mkdir Data && cp -r "$RUNNER_TEMP/data_seed/." Data/
@@ -133,11 +193,13 @@ jobs:
                 software)  platform="offscreen"; backend="software" ;;
               esac
               set +e
-              env PATH="$(pwd)/deploy:/c/Windows/System32:/c/Windows" QT_QPA_PLATFORM="$platform" QT_QUICK_BACKEND="$backend" \
-                ./deploy/SmartPharmacy.exe --shot "$1" "shots/$2.png" > "shots/$2-$mode.log" 2>&1
+              run_limited 60 "shots/$2-$mode.log" SmartPharmacy.exe \
+                env PATH="$(pwd)/deploy:/c/Windows/System32:/c/Windows" QT_QPA_PLATFORM="$platform" QT_QUICK_BACKEND="$backend" \
+                    ./deploy/SmartPharmacy.exe --shot "$1" "shots/$2.png"
               code=$?
               set -e
               lines=$(grep -c . "shots/$2-$mode.log" || true)
+              [ "$code" -eq 124 ] && echo "  (timed out; backtrace in shots/$2-$mode.log.hang-bt.txt)"
               echo "$1 [$mode]: exit $code, $lines output lines"
               if [ "$code" -eq 0 ] && [ "$lines" -eq 0 ] && [ -s "shots/$2.png" ]; then
                 echo "$1 $mode" >> shots/modes.txt
@@ -663,16 +725,43 @@ jobs:
           cmake --build "$RUNNER_TEMP/clickthrough/build" --parallel 2>&1 | tee clickthrough-build.log
 
       - name: Run the click-through (55 checks; fails on any check or any Qt/QML warning)
+        timeout-minutes: 25
         run: |
           mkdir -p clickthrough-shots
           export PC_DATA_SRC="$(cygpath -w "$GITHUB_WORKSPACE/Data")"
+          # run_limited <seconds> <log> <image name> <command...>: runs the command, and if it is still running after
+          # <seconds> it saves a gdb backtrace of every thread (<log>.hang-bt.txt), kills it and returns 124
+          run_limited() {
+            local limit=$1 log=$2 image=$3; shift 3
+            "$@" > "$log" 2>&1 &
+            local pid=$! waited=0
+            while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
+            if kill -0 "$pid" 2>/dev/null; then
+              local winpid
+              winpid=$(tasklist //FI "IMAGENAME eq $image" //FO CSV //NH | head -1 | cut -d'"' -f4)
+              echo "  still running after ${limit}s (pid $winpid): saving a backtrace"
+              "$MINGW_BIN/gdb.exe" -batch -p "$winpid" -ex "info threads" -ex "thread apply all bt 25" > "$log.hang-bt.txt" 2>&1 || true
+              taskkill //F //IM "$image" > /dev/null 2>&1 || true
+              wait "$pid" 2>/dev/null || true
+              return 124
+            fi
+            wait "$pid"
+          }
           result=1
           for attempt in 1 2; do
             set +e
             # Explicit PATH: Qt's MinGW runtime and Qt's DLLs only (Git Bash ships another libstdc++-6.dll)
-            env PATH="$MINGW_BIN:$(cygpath -u "$QT_ROOT_DIR")/bin:/c/Windows/System32:/c/Windows" \
-              "$RUNNER_TEMP/clickthrough/build/ui3.exe" clickthrough-shots > "clickthrough-attempt$attempt.log" 2>&1
+            run_limited 600 "clickthrough-attempt$attempt.log" ui3.exe \
+              env PATH="$MINGW_BIN:$(cygpath -u "$QT_ROOT_DIR")/bin:/c/Windows/System32:/c/Windows" \
+                  "$RUNNER_TEMP/clickthrough/build/ui3.exe" clickthrough-shots
             code=$?
+            if [ "$code" -ne 0 ] && [ "$code" -ne 1 ] && [ "$code" -ne 124 ]; then
+              echo "  crashed (exit $code): backtrace under gdb"
+              PATH="$MINGW_BIN:$(cygpath -u "$QT_ROOT_DIR")/bin:/c/Windows/System32:/c/Windows" \
+                "$MINGW_BIN/gdb.exe" -batch -ex run -ex "info threads" -ex "thread apply all bt 30" \
+                --args "$(cygpath -w "$RUNNER_TEMP/clickthrough/build/ui3.exe")" clickthrough-shots > "clickthrough-crash-bt$attempt.txt" 2>&1 || true
+              grep -E "^#|signal|SIGSEGV|^Thread|^\*" "clickthrough-crash-bt$attempt.txt" | head -50
+            fi
             set -e
             grep -E "^(PASS|FAIL)" "clickthrough-attempt$attempt.log" | sort | uniq -c | sort -rn | head -3 || true
             echo "attempt $attempt: exit $code, $(grep -c '^PASS' clickthrough-attempt$attempt.log) pass, $(grep -c '^FAIL' clickthrough-attempt$attempt.log) fail"
@@ -689,6 +778,7 @@ jobs:
           name: windows-clickthrough
           path: |
             clickthrough-attempt*.log
+            clickthrough-crash-bt*.txt
             clickthrough-build.log
             clickthrough-shots/
           if-no-files-found: warn
