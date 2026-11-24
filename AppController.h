@@ -119,9 +119,9 @@ public:
     Q_INVOKABLE bool isValidField(const QString& kind, const QString& value) const;
 
     // Checkout and orders
+    // Guest checkout: checkout opens directly; a customer who is not signed in is a guest and the
+    // order is stored with the customer id "GUEST-<phone>". Sign-in stays optional (offered on the page).
     Q_INVOKABLE void goToCheckout();
-    // Guest checkout: no account; the order is stored with the customer id "GUEST-<phone>"
-    Q_INVOKABLE void continueAsGuest();
     Q_INVOKABLE QVariantMap checkAddress(const QVariantMap& address) const;
     Q_INVOKABLE QVariantMap placeOrder(const QVariantMap& address, bool saveAddress,
                                        bool prescriptionConfirmed, bool acceptPriceChanges);

@@ -1,9 +1,6 @@
 // Component mancool le file lewa7do 3ashan ne-kasar el cyclic dependency (QML maby2balsh file ye3temed 3ala file beye3temed 3aleh).
 // Owner: Abdelrhman (GUI)
 import QtQuick
-import QtQuick.Effects
-import QtQuick.Controls.Basic as Basic
-import QtQuick.Layouts
 
 Column {
         id: pageHead

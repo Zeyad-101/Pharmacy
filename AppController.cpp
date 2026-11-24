@@ -289,6 +289,14 @@ void AppController::go(const QString& page, const QVariantMap& params)
     m_currentPage = target;
     m_pageParams = targetParams;
 
+    // Guest checkout: a customer who reaches checkout without signing in checks out as a guest
+    // (sign-in stays optional). Admins never land here: resolveRoute() sent them to the dashboard.
+    const bool guest = (target == QLatin1String("checkout")) && !m_authentication.isLoggedIn();
+    if (guest != m_guestCheckout) {
+        m_guestCheckout = guest;
+        emit sessionChanged();
+    }
+
     // Remember the products the customer opened ("Recently viewed")
     if (target == QLatin1String("product")) {
         const QString id = targetParams.value(QStringLiteral("id")).toString();
@@ -788,26 +796,11 @@ bool AppController::isGuestCheckout() const
     return m_guestCheckout && !m_authentication.isLoggedIn();
 }
 
-void AppController::continueAsGuest()
-{
-    // Guest checkout: registration is optional; admins still cannot shop (go() sends them to the dashboard)
-    if (!m_authentication.isLoggedIn()) {
-        m_guestCheckout = true;
-        emit sessionChanged();
-    }
-    go(QStringLiteral("checkout"));
-}
-
 void AppController::goToCheckout()
 {
-    // Checkout needs a customer or a guest: otherwise sign in first (or continue as guest), then come back
-    if (m_authentication.isLoggedIn() || isGuestCheckout()) {
-        go(QStringLiteral("checkout"));
-    } else {
-        QVariantMap params;
-        params.insert(QStringLiteral("next"), QStringLiteral("checkout"));
-        go(QStringLiteral("login"), params);
-    }
+    // Checkout opens directly: a logged-in customer sees it prefilled, everyone else checks out as a guest
+    // (sign-in stays optional, offered on the checkout page). Admins cannot shop: go() sends them to the dashboard.
+    go(QStringLiteral("checkout"));
 }
 
 QVariantMap AppController::checkAddress(const QVariantMap& address) const

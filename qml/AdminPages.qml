@@ -1,8 +1,6 @@
 // El file da fih safa7at el admin: el dashboard, el products (add / edit / remove), el orders (taghyeer el status), wel inventory.
 // Owner: Abdelrhman (GUI)
 import QtQuick
-import QtQuick.Controls.Basic as Basic
-import QtQuick.Dialogs
 
 QtObject {
 

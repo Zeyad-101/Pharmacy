@@ -149,6 +149,15 @@ Item {
                     text: checkout.bannerText
                 }
 
+                // Guest checkout: sign-in is optional; offer it at the top of the first step
+                Controls.InlineNotice {
+                    visible: checkout.step === 0 && checkout.guest
+                    width: parent.width
+                    text: "Already have an account?"
+                    actionText: "Sign in"
+                    onAction: App.go("login", { next: "checkout" })
+                }
+
                 // Step 1: shipping address
                 Controls.ShadowRect {
                     visible: checkout.step === 0
@@ -194,24 +203,6 @@ Item {
                                 status: checkout.missing.indexOf("phone") !== -1 ? "error" : ""
                                 helper: status === "error" ? "Phone number must be 11 digits and start with 01." : ""
                                 onAccepted: checkout.continueToReview()
-                            }
-                            Item {
-                                width: 344
-                                height: 77
-                                Row {
-                                    y: 44
-                                    spacing: 6
-                                    Controls.PText {
-                                        ts: Theme.small13
-                                        color: Theme.textBody
-                                        text: "Have an account?"
-                                    }
-                                    Controls.TextLink {
-                                        textStyle: Theme.linkBold
-                                        text: "Sign in instead"
-                                        onClicked: App.go("login", { next: "checkout" })
-                                    }
-                                }
                             }
                         }
                         Row {

@@ -105,15 +105,6 @@ QtObject {
                     iconName: "arrowR"
                     onClicked: loginPage.submit()
                 }
-                // Guest checkout: registration is optional when the customer came from the checkout
-                Controls.PcButton {
-                    visible: loginPage.next === "checkout"
-                    width: parent.width
-                    height: 56
-                    variant: "secondary"
-                    text: "Continue as guest"
-                    onClicked: App.continueAsGuest()
-                }
                 Controls.Divider {
                     width: parent.width
                 }

@@ -130,7 +130,7 @@ jobs:
           export QT_QPA_PLATFORM=offscreen
           mkdir -p shots
           EXE="build/SmartPharmacy.exe"
-          SPECS="home shop shop:Vitamins search:vitamin product:P004 product:P003 quickview:P001 drawer cart cartpromo cartlong cartempty login register loginguest guestcheckout guestconfirmation checkout confirmation account password orders orderdetails orderdetails:0 admin adminproducts adminorders admininventory adminform adminform:P003 adminpdp adminorderdetails suggest:vit"
+          SPECS="home shop shop:Vitamins search:vitamin product:P004 product:P003 quickview:P001 drawer cart cartpromo cartlong cartempty login register guestcheckout guestconfirmation checkout confirmation account password orders orderdetails orderdetails:0 admin adminproducts adminorders admininventory adminform adminform:P003 adminpdp adminorderdetails suggest:vit"
           # If the offscreen platform plugin cannot load, retry the whole sweep with the software backend.
           "$EXE" --shot home shots/_probe.png > probe.out 2>&1 || true
           if grep -qiE "could not (find|load).*platform plugin|offscreen" probe.out; then
