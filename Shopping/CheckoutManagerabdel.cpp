@@ -124,7 +124,9 @@ CheckoutResult CheckoutManager::placeOrder(const CheckoutRequest& request)
     }
 
     // 2. Customer and delivery address.
-    if (!users.getUserById(request.customerId)) {
+    // Guest checkout: el guest malosh account, fa mesh bendawar 3aleh fel users (ba2y el checks zay ma heya).
+    const bool isGuest = request.customerId.startsWith(QLatin1String(GUEST_CUSTOMER_PREFIX));
+    if (!isGuest && !users.getUserById(request.customerId)) {
         return makeResult(CheckoutStatus::CustomerNotFound);
     }
     if (!request.deliveryAddress.isValid()) {

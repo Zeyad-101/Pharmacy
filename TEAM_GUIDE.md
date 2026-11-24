@@ -86,6 +86,25 @@ If the build seems stuck on old settings, use **Build → Clear CMake Configurat
 
 Messages like `AutoGen warning: "...h" is empty` are normal while files are still empty. They disappear once the files contain code.
 
+## How to run the app
+
+The project is a Qt Quick (QML) desktop app on top of the C++ backend.
+
+**Requirements**
+- **Qt 6.8.3 or newer** (the GUI needs ≥ 6.8.3; it also runs on 6.10/6.11). On **Windows use the MinGW kit** (the team's reference kit is Qt 6.8.3 MinGW 64-bit).
+- Qt modules: **Qt Quick**, **Qt Quick Controls**, **Qt Svg**, **Qt Shader Tools** (install them in the Qt Maintenance Tool if a module is missing). A C++17 compiler.
+
+**Build and run**
+1. In Qt Creator: **File → Open File or Project…** → select `CMakeLists.txt` in the project root.
+2. Pick your Qt 6 kit (on Windows the **MinGW** kit) and **Configure Project**.
+3. **Build** (Ctrl/Cmd+B), then **Run** (Ctrl/Cmd+R). The window opens on the Home page.
+
+**Default admin login:** `admin` / `Admin@1234` (created automatically on first run). **Change it before any real use.** Admins manage products, orders and inventory; they cannot shop. Customers can check out signed in or as a guest.
+
+**Do not commit your local data.** Running the app writes to `Data/` (it creates the admin account, and placing orders adds to `Data/orders.json`; uploading product images writes `Data/images/`). Before committing, keep `Data/users.json` and `Data/orders.json` as the committed empty `[]`, and never commit `Data/users.json`, `Data/orders.json` or `Data/images/` after running. `Data/images/` is already git-ignored; if you changed `users.json`/`orders.json` by running, restore them with `git checkout -- Data/`.
+
+**Command-line build (optional):** build into a separate folder such as `build-cli/` (git-ignored). Do **not** run a command-line build into `build/` — that is Qt Creator's own folder and a stray CLI cache there causes a generator-mismatch build error.
+
 ## 7. Using Git (feature branches)
 
 Nobody pushes directly to `main`. Everyone works on their own feature branch, and the **leader merges** finished branches into `main`.

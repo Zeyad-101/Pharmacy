@@ -1,0 +1,188 @@
+# Windows build check: the team's setup (Qt 6.8.3 MinGW 64-bit, MinGW 13.1, Qt's CMake + Ninja).
+# Builds in Release with 0 warnings, lints the QML, deploys with windeployqt and runs --selftest from the
+# deployed folder on a fresh copy of the committed Data/.
+name: Windows build (Qt 6.8.3 MinGW)
+
+on:
+  push:
+    branches: [feature/gui, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The exe is a Windows GUI app: send Qt warnings to stderr so the job can see (and fail on) them
+  QT_FORCE_STDERR_LOGGING: '1'
+
+jobs:
+  build:
+    name: Build, qmllint, deploy, selftest
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Keep a pristine copy of the committed Data/
+        run: |
+          mkdir -p "$RUNNER_TEMP/data_seed"
+          cp -r Data/. "$RUNNER_TEMP/data_seed/"
+          ls -l "$RUNNER_TEMP/data_seed"
+
+      - name: Install Qt 6.8.3 (MinGW 64-bit kit) + MinGW 13.1 + CMake + Ninja (Qt's own tools, like Qt Creator)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_mingw'
+          modules: 'qtshadertools'
+          tools: 'tools_mingw1310,qt.tools.win64_mingw1310 tools_cmake,qt.tools.cmake tools_ninja,qt.tools.ninja'
+          cache: true
+
+      - name: Put Qt's MinGW 13.1, CMake and Ninja first on PATH (not the runner's own tools)
+        run: |
+          TOOLS="$(cygpath -u "$IQTA_TOOLS")"
+          # GITHUB_PATH entries added later come first: compiler first of all
+          echo "$(cygpath -w "$TOOLS/Ninja")" >> "$GITHUB_PATH"
+          echo "$(cygpath -w "$TOOLS/CMake_64/bin")" >> "$GITHUB_PATH"
+          echo "$(cygpath -w "$TOOLS/mingw1310_64/bin")" >> "$GITHUB_PATH"
+          echo "MINGW_BIN=$TOOLS/mingw1310_64/bin" >> "$GITHUB_ENV"
+          echo "QT_TOOLS=$TOOLS" >> "$GITHUB_ENV"
+
+      - name: Check the toolchain matches the Qt kit
+        run: |
+          echo "QT_ROOT_DIR=$QT_ROOT_DIR"
+          which g++ cmake ninja
+          g++ --version | head -1
+          cmake --version | head -1
+          case "$(which cmake)" in
+            "$QT_TOOLS"/CMake_64/*) echo "OK: cmake comes from the Qt tools" ;;
+            *) echo "::error::cmake on PATH is not Qt's CMake"; exit 1 ;;
+          esac
+          echo "libstdc++-6.dll on PATH (the first one must be Qt's MinGW):"
+          for d in $(echo "$PATH" | tr ':' ' '); do [ -f "$d/libstdc++-6.dll" ] && echo "  $d"; done; true
+          case "$(which g++)" in
+            "$MINGW_BIN"/*) echo "OK: g++ comes from the Qt MinGW 13.1 tools" ;;
+            *) echo "::error::g++ on PATH is not the Qt MinGW 13.1 compiler"; exit 1 ;;
+          esac
+          g++ --version | head -1 | grep -q "13.1.0" || { echo "::error::expected MinGW GCC 13.1.0 (Qt 6.8.3 kit)"; exit 1; }
+          test -f "$QT_ROOT_DIR/lib/cmake/Qt6Svg/Qt6SvgConfig.cmake" || { echo "::error::Qt Svg missing"; exit 1; }
+          test -f "$QT_ROOT_DIR/lib/cmake/Qt6QuickControls2/Qt6QuickControls2Config.cmake" || { echo "::error::Qt Quick Controls 2 missing"; exit 1; }
+
+      - name: Configure (CMake + Ninja, Release)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DCMAKE_CXX_COMPILER="$MINGW_BIN/g++.exe" 2>&1 | tee configure.log
+          if grep -iE "CMake Warning|warning:" configure.log; then echo "::error::CMake printed warnings"; exit 1; fi
+
+      - name: Build (fail on any error or warning)
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2>&1 | tee build.log
+          if grep -inE "\bwarning\b" build.log; then echo "::error::the build printed warnings (0-warning rule)"; exit 1; fi
+          test -f build/SmartPharmacy.exe
+
+      - name: Lint the QML (qmllint, 0 warnings)
+        run: |
+          set -o pipefail
+          cmake --build build --target all_qmllint 2>&1 | tee qmllint.log
+          if grep -nE "Warning:" qmllint.log; then echo "::error::qmllint printed warnings"; exit 1; fi
+
+      - name: Deploy with windeployqt (standalone folder)
+        run: |
+          mkdir -p deploy
+          cp build/SmartPharmacy.exe deploy/
+          windeployqt --release --qmldir qml --compiler-runtime deploy/SmartPharmacy.exe 2>&1 | tee windeployqt.log
+          ls deploy
+
+      - name: Run --selftest from the deployed folder (Qt and MinGW not on PATH)
+        run: |
+          rm -rf Data && mkdir Data && cp -r "$RUNNER_TEMP/data_seed/." Data/
+          set +e
+          env PATH="$(pwd)/deploy:/c/Windows/System32:/c/Windows" ./deploy/SmartPharmacy.exe --selftest > selftest.txt 2>&1
+          code=$?
+          set -e
+          cat selftest.txt
+          [ "$code" -eq 0 ] || { echo "::error::--selftest exited with $code"; exit 1; }
+          tr -d '\r' < selftest.txt > selftest.clean
+          for line in "Admin account created (username: admin)" "SmartPharmacy backend is ready" "Products: 14" "Users: 1" "Promo codes: 2" "Orders: 0"; do
+            grep -qxF "$line" selftest.clean || { echo "::error::selftest summary is missing: $line"; exit 1; }
+          done
+          grep -q "^Data folder: " selftest.clean || { echo "::error::selftest summary is missing the Data folder line"; exit 1; }
+          [ "$(wc -l < selftest.clean)" -eq 7 ] || { echo "::error::selftest printed extra lines"; exit 1; }
+          echo "selftest OK"
+
+      - name: Render every screen with --shot (offscreen); fail on crash or QML console output
+        timeout-minutes: 30
+        run: |
+          # After the split-into-files refactor the GUI must start on Qt 6.8.3 (it used to crash:
+          # a list component defined inline in one file and instantiated from another). We render
+          # every screen, including the ones that host the moved list components.
+          rm -rf Data && mkdir Data && cp -r "$RUNNER_TEMP/data_seed/." Data/
+          export PATH="$(cygpath -u "$QT_ROOT_DIR")/bin:$PATH"
+          export QT_QPA_PLATFORM=offscreen
+          mkdir -p shots
+          EXE="build/SmartPharmacy.exe"
+          SPECS="home shop shop:Vitamins search:vitamin product:P004 product:P003 quickview:P001 drawer cart cartpromo cartlong cartempty login register guestcheckout guestconfirmation checkout confirmation account password orders orderdetails orderdetails:0 admin adminproducts adminorders admininventory adminform adminform:P003 adminpdp adminorderdetails suggest:vit"
+          # If the offscreen platform plugin cannot load, retry the whole sweep with the software backend.
+          "$EXE" --shot home shots/_probe.png > probe.out 2>&1 || true
+          if grep -qiE "could not (find|load).*platform plugin|offscreen" probe.out; then
+            echo "offscreen plugin unavailable -> QT_QUICK_BACKEND=software"
+            export QT_QUICK_BACKEND=software
+          fi
+          # Benign environment noise, not QML warnings: the offscreen font-alias note, and the
+          # "no fonts" messages from an aqt Qt install that ships without a lib/fonts directory
+          # (a real desktop Qt / Qt Creator run has fonts, so these do not appear there).
+          NOISE="Populating font family aliases|QFontDatabase: Cannot find font directory|Qt no longer ships fonts"
+          fail=0
+          for s in $SPECS; do
+            out="shots/$(echo "$s" | tr ':' '_').png"
+            "$EXE" --shot "$s" "$out" > shot.out 2> shot.err &
+            pid=$!
+            i=0; while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 90 ]; do sleep 1; i=$((i+1)); done
+            if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null; echo "::error::shot '$s' timed out (90s)"; fail=1; continue; fi
+            wait "$pid"; rc=$?
+            other=$(tr -d '\r' < shot.err | grep -vE "$NOISE" | grep -c . || true)
+            if [ "$rc" -ne 0 ]; then echo "::error::shot '$s' exited $rc (crash?)"; cat shot.err; fail=1; continue; fi
+            if [ "$other" -ne 0 ]; then echo "::error::shot '$s' printed QML console output"; tr -d '\r' < shot.err | grep -vE "$NOISE"; fail=1; continue; fi
+            [ -s "$out" ] || { echo "::error::shot '$s' produced no image"; fail=1; }
+          done
+          echo "rendered $(ls shots/*.png 2>/dev/null | grep -v _probe | wc -l) screens"
+          [ "$fail" -eq 0 ] || { echo "::error::one or more screens failed to render on Qt 6.8.3"; exit 1; }
+          echo "all screens rendered on Qt 6.8.3"
+
+      - name: Upload the Windows screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-shots
+          path: shots/
+          if-no-files-found: warn
+
+      - name: Upload the deployed app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartPharmacy-windows-deploy
+          path: deploy/
+          if-no-files-found: warn
+
+      - name: Upload selftest output and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-selftest-and-logs
+          path: |
+            selftest.txt
+            configure.log
+            build.log
+            qmllint.log
+            windeployqt.log
+          if-no-files-found: warn

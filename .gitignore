@@ -1,5 +1,6 @@
 # Build output (regenerate with Qt Creator / CMake)
 build/
+build-*/
 
 # Personal Qt Creator settings (kit-specific)
 .qtcreator/
@@ -8,3 +9,6 @@ build/
 
 # macOS
 .DS_Store
+
+# Product images uploaded in the admin area (DATA_DIR/images) are local data, never committed
+Data/images/

@@ -9,8 +9,9 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core)
+# Qt 6.5 or newer (the team uses Qt 6.8 on Windows and Qt 6.11 on macOS)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Svg)
+qt_standard_project_setup(REQUIRES 6.5)
 
 set(MODEL_FILES
     Models/Address.h
@@ -75,7 +76,7 @@ set(UTILS_FILES
     Utils/Validationfay.cpp
 )
 
-add_executable(SmartPharmacy
+qt_add_executable(SmartPharmacy
   main.cpp
   ${MODEL_FILES}
   ${MEDICINE_FILES}
@@ -93,7 +94,60 @@ target_include_directories(SmartPharmacy PRIVATE
 
 target_compile_definitions(SmartPharmacy PRIVATE DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
-target_link_libraries(SmartPharmacy PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+# GUI (QML): the C++ bridge, the QML files and the images / icons / fonts
+set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# Put every QML file at the root of the module, so they see each other and the App singleton.
+# The list components (Repeater/ListView/...) live in their own files, because Qt 6.8/6.9 crash
+# when such an inline component is instantiated from another file (fine again on Qt >= 6.10.3).
+set(GUI_QML_NAMES
+    Main Theme Controls ShopPages CheckoutPages AccountPages AdminPages
+    HomePage ShopPage ProductPage SearchSuggestions
+    CartPage CartDrawer CheckoutPage ConfirmationPage
+    OrdersList OrderDetailsPage
+    Dashboard OrderRow ProductsAdmin OrdersAdmin InventoryAdmin
+    Breadcrumb SpecTable CheckoutStepper StatusTracker SelectField HeaderDesktop FooterDesktop
+    PageHead ProductForm StockRow
+)
+foreach(qml_file ${GUI_QML_NAMES})
+    set_source_files_properties(qml/${qml_file}.qml PROPERTIES QT_RESOURCE_ALIAS ${qml_file}.qml)
+endforeach()
+set(GUI_QML_FILES "")
+foreach(qml_file ${GUI_QML_NAMES})
+    list(APPEND GUI_QML_FILES qml/${qml_file}.qml)
+endforeach()
+
+file(GLOB GUI_IMAGES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS Resources/images/*.png)
+file(GLOB GUI_ICONS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS Resources/icons/*.svg)
+file(GLOB GUI_FONTS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS Resources/fonts/*.ttf)
+
+qt_add_qml_module(SmartPharmacy
+    URI PharmaCare
+    VERSION 1.0
+    QML_FILES
+        ${GUI_QML_FILES}
+    SOURCES
+        AppController.h
+        AppController.cpp
+    RESOURCES
+        ${GUI_IMAGES}
+        ${GUI_ICONS}
+        ${GUI_FONTS}
+)
+
+# Windows: a normal GUI app (no console window). macOS: a plain executable, so DATA_DIR keeps working.
+set_target_properties(SmartPharmacy PROPERTIES
+    WIN32_EXECUTABLE ON
+    MACOSX_BUNDLE OFF
+)
+
+target_link_libraries(SmartPharmacy PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickControls2
+    Qt6::Svg
+)
 
 include(GNUInstallDirs)
 install(TARGETS SmartPharmacy
