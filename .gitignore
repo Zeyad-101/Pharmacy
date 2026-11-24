@@ -1,5 +1,6 @@
 # Build output (regenerate with Qt Creator / CMake)
 build/
+build-*/
 
 # Personal Qt Creator settings (kit-specific)
 .qtcreator/
