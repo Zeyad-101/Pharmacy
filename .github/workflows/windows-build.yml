@@ -137,6 +137,10 @@ jobs:
             echo "offscreen plugin unavailable -> QT_QUICK_BACKEND=software"
             export QT_QUICK_BACKEND=software
           fi
+          # Benign environment noise, not QML warnings: the offscreen font-alias note, and the
+          # "no fonts" messages from an aqt Qt install that ships without a lib/fonts directory
+          # (a real desktop Qt / Qt Creator run has fonts, so these do not appear there).
+          NOISE="Populating font family aliases|QFontDatabase: Cannot find font directory|Qt no longer ships fonts"
           fail=0
           for s in $SPECS; do
             out="shots/$(echo "$s" | tr ':' '_').png"
@@ -145,10 +149,9 @@ jobs:
             i=0; while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 90 ]; do sleep 1; i=$((i+1)); done
             if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null; echo "::error::shot '$s' timed out (90s)"; fail=1; continue; fi
             wait "$pid"; rc=$?
-            # The offscreen platform prints a one-off font-alias note to stderr; it is not a QML warning.
-            other=$(tr -d '\r' < shot.err | grep -vE "Populating font family aliases" | grep -c . || true)
+            other=$(tr -d '\r' < shot.err | grep -vE "$NOISE" | grep -c . || true)
             if [ "$rc" -ne 0 ]; then echo "::error::shot '$s' exited $rc (crash?)"; cat shot.err; fail=1; continue; fi
-            if [ "$other" -ne 0 ]; then echo "::error::shot '$s' printed QML console output"; tr -d '\r' < shot.err | grep -vE "Populating font family aliases"; fail=1; continue; fi
+            if [ "$other" -ne 0 ]; then echo "::error::shot '$s' printed QML console output"; tr -d '\r' < shot.err | grep -vE "$NOISE"; fail=1; continue; fi
             [ -s "$out" ] || { echo "::error::shot '$s' produced no image"; fail=1; }
           done
           echo "rendered $(ls shots/*.png 2>/dev/null | grep -v _probe | wc -l) screens"
