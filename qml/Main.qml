@@ -63,7 +63,7 @@ Basic.ApplicationWindow {
             visible: window.checkoutMode
             width: parent.width
         }
-    Controls.HeaderDesktop {
+    HeaderDesktop {
         id: header
         visible: !window.checkoutMode
         width: parent.width
@@ -144,7 +144,7 @@ Basic.ApplicationWindow {
                         easing.type: Easing.OutCubic
                     }
                 }
-                Controls.FooterDesktop {
+                FooterDesktop {
                     visible: !window.checkoutMode
                     width: parent.width
                 }
@@ -158,27 +158,27 @@ Basic.ApplicationWindow {
 
     Component {
         id: homePage
-        ShopPages.HomePage {}
+        HomePage {}
     }
     Component {
         id: shopPage
-        ShopPages.ShopPage {}
+        ShopPage {}
     }
     Component {
         id: productPage
-        ShopPages.ProductPage {}
+        ProductPage {}
     }
     Component {
         id: cartPage
-        CheckoutPages.CartPage {}
+        CartPage {}
     }
     Component {
         id: checkoutPage
-        CheckoutPages.CheckoutPage {}
+        CheckoutPage {}
     }
     Component {
         id: confirmationPage
-        CheckoutPages.ConfirmationPage {}
+        ConfirmationPage {}
     }
     Component {
         id: loginPage
@@ -194,7 +194,7 @@ Basic.ApplicationWindow {
     }
     Component {
         id: orderDetailsPage
-        AccountPages.OrderDetailsPage {}
+        OrderDetailsPage {}
     }
     Component {
         id: adminPage
@@ -211,7 +211,7 @@ Basic.ApplicationWindow {
         focus: false
         closePolicy: Basic.Popup.CloseOnEscape | Basic.Popup.CloseOnPressOutsideParent
         background: Item {}
-        contentItem: ShopPages.SearchSuggestions {
+        contentItem: SearchSuggestions {
             term: header.searchText.trim()
             onCloseRequested: searchPopup.close()
         }
@@ -251,7 +251,7 @@ Basic.ApplicationWindow {
         modal: true
         dim: false
         background: Item {}
-        contentItem: CheckoutPages.CartDrawer {
+        contentItem: CartDrawer {
             id: drawer
             onCloseRequested: drawerPopup.close()
         }

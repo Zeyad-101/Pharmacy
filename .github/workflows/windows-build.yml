@@ -119,6 +119,50 @@ jobs:
           [ "$(wc -l < selftest.clean)" -eq 7 ] || { echo "::error::selftest printed extra lines"; exit 1; }
           echo "selftest OK"
 
+      - name: Render every screen with --shot (offscreen); fail on crash or QML console output
+        timeout-minutes: 30
+        run: |
+          # After the split-into-files refactor the GUI must start on Qt 6.8.3 (it used to crash:
+          # a list component defined inline in one file and instantiated from another). We render
+          # every screen, including the ones that host the moved list components.
+          rm -rf Data && mkdir Data && cp -r "$RUNNER_TEMP/data_seed/." Data/
+          export PATH="$(cygpath -u "$QT_ROOT_DIR")/bin:$PATH"
+          export QT_QPA_PLATFORM=offscreen
+          mkdir -p shots
+          EXE="build/SmartPharmacy.exe"
+          SPECS="home shop shop:Vitamins search:vitamin product:P004 product:P003 quickview:P001 drawer cart cartpromo cartlong cartempty login register loginguest guestcheckout guestconfirmation checkout confirmation account password orders orderdetails orderdetails:0 admin adminproducts adminorders admininventory adminform adminform:P003 adminpdp adminorderdetails suggest:vit"
+          # If the offscreen platform plugin cannot load, retry the whole sweep with the software backend.
+          "$EXE" --shot home shots/_probe.png > probe.out 2>&1 || true
+          if grep -qiE "could not (find|load).*platform plugin|offscreen" probe.out; then
+            echo "offscreen plugin unavailable -> QT_QUICK_BACKEND=software"
+            export QT_QUICK_BACKEND=software
+          fi
+          fail=0
+          for s in $SPECS; do
+            out="shots/$(echo "$s" | tr ':' '_').png"
+            "$EXE" --shot "$s" "$out" > shot.out 2> shot.err &
+            pid=$!
+            i=0; while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 90 ]; do sleep 1; i=$((i+1)); done
+            if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null; echo "::error::shot '$s' timed out (90s)"; fail=1; continue; fi
+            wait "$pid"; rc=$?
+            # The offscreen platform prints a one-off font-alias note to stderr; it is not a QML warning.
+            other=$(tr -d '\r' < shot.err | grep -vE "Populating font family aliases" | grep -c . || true)
+            if [ "$rc" -ne 0 ]; then echo "::error::shot '$s' exited $rc (crash?)"; cat shot.err; fail=1; continue; fi
+            if [ "$other" -ne 0 ]; then echo "::error::shot '$s' printed QML console output"; tr -d '\r' < shot.err | grep -vE "Populating font family aliases"; fail=1; continue; fi
+            [ -s "$out" ] || { echo "::error::shot '$s' produced no image"; fail=1; }
+          done
+          echo "rendered $(ls shots/*.png 2>/dev/null | grep -v _probe | wc -l) screens"
+          [ "$fail" -eq 0 ] || { echo "::error::one or more screens failed to render on Qt 6.8.3"; exit 1; }
+          echo "all screens rendered on Qt 6.8.3"
+
+      - name: Upload the Windows screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-shots
+          path: shots/
+          if-no-files-found: warn
+
       - name: Upload the deployed app
         if: always()
         uses: actions/upload-artifact@v4

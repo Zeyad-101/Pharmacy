@@ -96,9 +96,24 @@ target_compile_definitions(SmartPharmacy PRIVATE DATA_DIR="${CMAKE_CURRENT_SOURC
 
 # GUI (QML): the C++ bridge, the QML files and the images / icons / fonts
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
-# Put every QML file at the root of the module, so they see each other and the App singleton
-foreach(qml_file Main Theme Controls ShopPages CheckoutPages AccountPages AdminPages)
+# Put every QML file at the root of the module, so they see each other and the App singleton.
+# The list components (Repeater/ListView/...) live in their own files, because Qt 6.8/6.9 crash
+# when such an inline component is instantiated from another file (fine again on Qt >= 6.10.3).
+set(GUI_QML_NAMES
+    Main Theme Controls ShopPages CheckoutPages AccountPages AdminPages
+    HomePage ShopPage ProductPage SearchSuggestions
+    CartPage CartDrawer CheckoutPage ConfirmationPage
+    OrdersList OrderDetailsPage
+    Dashboard OrderRow ProductsAdmin OrdersAdmin InventoryAdmin
+    Breadcrumb SpecTable CheckoutStepper StatusTracker SelectField HeaderDesktop FooterDesktop
+    PageHead ProductForm StockRow
+)
+foreach(qml_file ${GUI_QML_NAMES})
     set_source_files_properties(qml/${qml_file}.qml PROPERTIES QT_RESOURCE_ALIAS ${qml_file}.qml)
+endforeach()
+set(GUI_QML_FILES "")
+foreach(qml_file ${GUI_QML_NAMES})
+    list(APPEND GUI_QML_FILES qml/${qml_file}.qml)
 endforeach()
 
 file(GLOB GUI_IMAGES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS Resources/images/*.png)
@@ -109,13 +124,7 @@ qt_add_qml_module(SmartPharmacy
     URI PharmaCare
     VERSION 1.0
     QML_FILES
-        qml/Main.qml
-        qml/Theme.qml
-        qml/Controls.qml
-        qml/ShopPages.qml
-        qml/CheckoutPages.qml
-        qml/AccountPages.qml
-        qml/AdminPages.qml
+        ${GUI_QML_FILES}
     SOURCES
         AppController.h
         AppController.cpp
